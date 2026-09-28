@@ -1,0 +1,635 @@
+// Mô hình dữ liệu chính (mục 4 tài liệu công nghệ).
+// Nguyên tắc: Dining Session là nguồn sự thật; bàn chỉ là vị trí phục vụ. Tiền lưu số nguyên đồng.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  ADMIN
+  MANAGER
+  CASHIER
+  WAITER
+  KITCHEN
+  HEAD_CHEF
+  STOREKEEPER
+  ACCOUNTANT
+}
+
+enum DeviceKind {
+  TABLET
+  KDS
+  PRINTER
+}
+
+enum TableStatus {
+  AVAILABLE
+  DINING
+  PAYMENT
+  CLEANING
+  RESERVED
+}
+
+enum SessionStatus {
+  OPEN
+  PAYMENT
+  CLOSED
+}
+
+enum OrderSource {
+  TABLET
+  POS
+  AI
+}
+
+enum OrderItemStatus {
+  CONFIRMED
+  SENT
+  KDS_ACK
+  FALLBACK
+  PREPARING
+  READY
+  ASSIGNED
+  PICKED_UP
+  DELIVERED
+  CANCELLED
+}
+
+enum TicketStatus {
+  SENT
+  ACKED
+  FALLBACK
+}
+
+enum BillStatus {
+  OPEN
+  LOCKED
+  PAID
+  CLOSED
+  /// Bill gốc đã tách thành các bill con
+  SPLIT
+  /// Bill của phiên đã gộp vào phiên khác
+  VOID
+}
+
+enum ShiftStatus {
+  OPEN
+  PENDING_APPROVAL
+  CLOSED
+}
+
+enum PaymentMethod {
+  CASH
+  QR
+  CARD
+  EWALLET
+}
+
+enum PaymentStatus {
+  PENDING
+  SUCCEEDED
+  FAILED
+}
+
+model User {
+  id           String   @id @default(uuid())
+  username     String   @unique
+  name         String
+  passwordHash String   @map("password_hash")
+  role         Role
+  active       Boolean  @default(true)
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  @@map("users")
+}
+
+model Device {
+  id        String     @id @default(uuid())
+  kind      DeviceKind
+  name      String
+  tableId   String?    @map("table_id")
+  station   String?
+  revokedAt DateTime?  @map("revoked_at")
+  createdAt DateTime   @default(now()) @map("created_at")
+  table     Table?     @relation(fields: [tableId], references: [id])
+
+  @@map("devices")
+}
+
+model PairingCode {
+  code      String     @id
+  kind      DeviceKind
+  tableId   String?    @map("table_id")
+  station   String?
+  expiresAt DateTime   @map("expires_at")
+  usedAt    DateTime?  @map("used_at")
+
+  @@map("pairing_codes")
+}
+
+model Table {
+  id          String            @id @default(uuid())
+  code        String            @unique
+  seats       Int
+  zone        String
+  status      TableStatus       @default(AVAILABLE)
+  version     Int               @default(0)
+  assignments TableAssignment[]
+  devices     Device[]
+
+  @@map("tables")
+}
+
+model DiningSession {
+  id          String            @id @default(uuid())
+  seqNo       Int               @default(autoincrement()) @map("seq_no")
+  code        String            @unique
+  guests      Int
+  status      SessionStatus     @default(OPEN)
+  note        String?
+  version     Int               @default(0)
+  openedAt    DateTime          @default(now()) @map("opened_at")
+  closedAt    DateTime?         @map("closed_at")
+  assignments TableAssignment[]
+  orders      Order[]
+  bills       Bill[]
+
+  @@map("dining_sessions")
+}
+
+/// Lịch sử bàn của phiên: chuyển/gộp bàn chỉ đóng dòng cũ và mở dòng mới.
+model TableAssignment {
+  id        String        @id @default(uuid())
+  sessionId String        @map("session_id")
+  tableId   String        @map("table_id")
+  fromAt    DateTime      @default(now()) @map("from_at")
+  toAt      DateTime?     @map("to_at")
+  session   DiningSession @relation(fields: [sessionId], references: [id])
+  table     Table         @relation(fields: [tableId], references: [id])
+
+  @@index([tableId, toAt])
+  @@index([sessionId, toAt])
+  @@map("table_assignments")
+}
+
+model MenuCategory {
+  id    String     @id @default(uuid())
+  name  String
+  sort  Int        @default(0)
+  items MenuItem[]
+
+  @@map("menu_categories")
+}
+
+model MenuItem {
+  id         String       @id @default(uuid())
+  code       String       @unique
+  name       String
+  categoryId String       @map("category_id")
+  price      Int
+  tags       String[]     @default([])
+  imageUrl   String?      @map("image_url")
+  available  Boolean      @default(true)
+  station    String
+  taxGroup   String       @map("tax_group")
+  sort       Int          @default(0)
+  category   MenuCategory @relation(fields: [categoryId], references: [id])
+  orderItems OrderItem[]
+
+  @@map("menu_items")
+}
+
+/// Thuế suất có ngày hiệu lực (mục 12.3). rate_bp: 800 = 8%.
+model TaxRate {
+  id        String    @id @default(uuid())
+  taxGroup  String    @map("tax_group")
+  rateBp    Int       @map("rate_bp")
+  validFrom DateTime  @map("valid_from") @db.Date
+  validTo   DateTime? @map("valid_to") @db.Date
+  note      String?
+
+  @@map("tax_rates")
+}
+
+model Order {
+  id             String          @id @default(uuid())
+  number         Int             @default(autoincrement())
+  sessionId      String          @map("session_id")
+  idempotencyKey String          @unique @map("idempotency_key")
+  source         OrderSource
+  total          Int
+  createdBy      String?         @map("created_by")
+  /// Phiên gốc khi order được chuyển sang do gộp bàn
+  originSessionId String?        @map("origin_session_id")
+  createdAt      DateTime        @default(now()) @map("created_at")
+  session        DiningSession   @relation(fields: [sessionId], references: [id])
+  items          OrderItem[]
+  tickets        KitchenTicket[]
+
+  @@index([sessionId])
+  @@map("orders")
+}
+
+model OrderItem {
+  id           String          @id @default(uuid())
+  orderId      String          @map("order_id")
+  menuItemId   String          @map("menu_item_id")
+  name         String
+  qty          Int
+  note         String?
+  unitPrice    Int             @map("unit_price")
+  taxGroup     String          @map("tax_group")
+  station      String
+  status       OrderItemStatus @default(CONFIRMED)
+  cancelReason String?         @map("cancel_reason")
+  /// Lúc bếp báo xong, dùng cho hàng chờ giao và SLA
+  readyAt      DateTime?       @map("ready_at")
+  /// ROBOT: bộ điều phối tự giao; STAFF: nhân viên mang ra (fallback)
+  deliveryMode DeliveryMode    @default(ROBOT) @map("delivery_mode")
+  updatedAt    DateTime        @updatedAt @map("updated_at")
+  order        Order           @relation(fields: [orderId], references: [id])
+  menuItem     MenuItem        @relation(fields: [menuItemId], references: [id])
+
+  @@index([orderId])
+  @@map("order_items")
+}
+
+model KitchenTicket {
+  id         String       @id @default(uuid())
+  orderId    String       @map("order_id")
+  station    String
+  status     TicketStatus @default(SENT)
+  attempts   Int          @default(1)
+  lastSentAt DateTime     @default(now()) @map("last_sent_at")
+  ackedAt    DateTime?    @map("acked_at")
+  createdAt  DateTime     @default(now()) @map("created_at")
+  order      Order        @relation(fields: [orderId], references: [id])
+
+  @@unique([orderId, station])
+  @@index([station, status])
+  @@map("kitchen_tickets")
+}
+
+model Bill {
+  id          String     @id @default(uuid())
+  number      Int        @default(autoincrement())
+  sessionId   String     @map("session_id")
+  status      BillStatus @default(OPEN)
+  discount    Int        @default(0)
+  version     Int        @default(0)
+  total       Int        @default(0)
+  lockedAt    DateTime?  @map("locked_at")
+  paidAt      DateTime?  @map("paid_at")
+  businessDay String?    @map("business_day")
+  parentId    String?    @map("parent_id")
+  /// Nhãn bill con khi tách (vd. G1, G2)
+  label       String?
+  createdAt   DateTime   @default(now()) @map("created_at")
+  session     DiningSession @relation(fields: [sessionId], references: [id])
+  lines       BillLine[]
+  payments    Payment[]
+  refunds     Refund[]
+
+  @@index([sessionId])
+  @@index([businessDay])
+  @@map("bills")
+}
+
+/// Ảnh chụp số liệu tại thời điểm khóa bill; hóa đơn và báo cáo đều lấy từ đây.
+model BillLine {
+  id          String @id @default(uuid())
+  billId      String @map("bill_id")
+  orderItemId String @map("order_item_id")
+  name        String
+  qty         Int
+  unitPrice   Int    @map("unit_price")
+  discount    Int
+  taxGroup    String @map("tax_group")
+  rateBp      Int    @map("rate_bp")
+  base        Int
+  tax         Int
+  amount      Int
+  bill        Bill   @relation(fields: [billId], references: [id])
+
+  @@map("bill_lines")
+}
+
+model Payment {
+  id             String        @id @default(uuid())
+  billId         String        @map("bill_id")
+  method         PaymentMethod
+  amount         Int
+  received       Int?
+  status         PaymentStatus @default(PENDING)
+  providerTxnId  String?       @unique @map("provider_txn_id")
+  idempotencyKey String        @unique @map("idempotency_key")
+  cashierId      String?       @map("cashier_id")
+  shiftId        String?       @map("shift_id")
+  createdAt      DateTime      @default(now()) @map("created_at")
+  confirmedAt    DateTime?     @map("confirmed_at")
+  bill           Bill          @relation(fields: [billId], references: [id])
+  shift          Shift?        @relation(fields: [shiftId], references: [id])
+
+  @@index([billId])
+  @@map("payments")
+}
+
+/// Sổ sự kiện append-only, đồng thời là outbox: published_at null = chưa phát.
+model EventLog {
+  seq         BigInt    @id @default(autoincrement())
+  type        String
+  aggregate   String
+  aggregateId String    @map("aggregate_id")
+  data        Json
+  rooms       String[]
+  createdAt   DateTime  @default(now()) @map("created_at")
+  publishedAt DateTime? @map("published_at")
+
+  @@index([publishedAt, seq])
+  @@map("event_log")
+}
+
+model AuditLog {
+  id        String   @id @default(uuid())
+  actorId   String   @map("actor_id")
+  action    String
+  entity    String
+  entityId  String   @map("entity_id")
+  before    Json?
+  after     Json?
+  reason    String?
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([entity, entityId])
+  @@map("audit_log")
+}
+
+/// Hoàn tiền là bút toán âm riêng, tính vào ngày kinh doanh lúc hoàn (mục 10.1).
+model Refund {
+  id          String        @id @default(uuid())
+  billId      String        @map("bill_id")
+  method      PaymentMethod
+  amount      Int
+  reason      String
+  createdBy   String        @map("created_by")
+  shiftId     String?       @map("shift_id")
+  businessDay String        @map("business_day")
+  createdAt   DateTime      @default(now()) @map("created_at")
+  bill        Bill          @relation(fields: [billId], references: [id])
+  shift       Shift?        @relation(fields: [shiftId], references: [id])
+
+  @@index([businessDay])
+  @@map("refunds")
+}
+
+model Shift {
+  id           String      @id @default(uuid())
+  cashierId    String      @map("cashier_id")
+  status       ShiftStatus @default(OPEN)
+  openingCash  Int         @map("opening_cash")
+  countedCash  Int?        @map("counted_cash")
+  expectedCash Int?        @map("expected_cash")
+  difference   Int?
+  totals       Json?
+  note         String?
+  approvedBy   String?     @map("approved_by")
+  openedAt     DateTime    @default(now()) @map("opened_at")
+  closedAt     DateTime?   @map("closed_at")
+  payments     Payment[]
+  refunds      Refund[]
+
+  @@index([cashierId, status])
+  @@map("shifts")
+}
+
+/// Chốt ngày kinh doanh: khóa số liệu và tạo bảng tổng hợp.
+model BusinessDay {
+  day      String   @id
+  closedAt DateTime @map("closed_at")
+  closedBy String   @map("closed_by")
+  summary  Json
+
+  @@map("business_days")
+}
+
+model DailySalesSummary {
+  day        String
+  menuItemId String @map("menu_item_id")
+  name       String
+  category   String
+  qty        Int
+  revenue    Int
+  discount   Int
+  cogs       Int    @default(0)
+
+  @@id([day, menuItemId])
+  @@map("daily_sales_summary")
+}
+
+model HourlySalesSummary {
+  day     String
+  hour    Int
+  bills   Int
+  guests  Int
+  revenue Int
+
+  @@id([day, hour])
+  @@map("hourly_sales_summary")
+}
+
+/// Lưu toàn bộ payload webhook gốc để truy vết (mục 13.5).
+model WebhookLog {
+  id          String   @id @default(uuid())
+  provider    String
+  kind        String
+  headers     Json
+  body        Json
+  signatureOk Boolean  @map("signature_ok")
+  result      String
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  @@index([provider, createdAt])
+  @@map("webhook_logs")
+}
+
+/// Sao kê giả lập cho adapter thanh toán "mock" (môi trường dev/test).
+model MockBankTxn {
+  id        String   @id @default(uuid())
+  txnId     String   @unique @map("txn_id")
+  amount    Int
+  content   String
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@map("mock_bank_txns")
+}
+
+enum BuyerKind {
+  PERSON
+  COMPANY
+}
+
+enum EInvoiceStatus {
+  PENDING
+  SENT
+  ISSUED
+  FAILED
+  ADJUSTED
+  REPLACED
+}
+
+enum EInvoiceKind {
+  ORIGINAL
+  ADJUSTMENT
+  REPLACEMENT
+}
+
+model BillBuyer {
+  billId   String    @id @map("bill_id")
+  kind     BuyerKind
+  taxCode  String?   @map("tax_code")
+  name     String?
+  address  String?
+  email    String?
+  phone    String?
+  idNumber String?   @map("id_number")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@map("bill_buyers")
+}
+
+model EInvoice {
+  id               String         @id @default(uuid())
+  billId           String         @map("bill_id")
+  kind             EInvoiceKind   @default(ORIGINAL)
+  provider         String
+  templateCode     String?        @map("template_code")
+  series           String?
+  number           String?
+  lookupCode       String?        @map("lookup_code")
+  lookupUrl        String?        @map("lookup_url")
+  taxAuthorityCode String?        @map("tax_authority_code")
+  issuedAt         DateTime?      @map("issued_at")
+  businessDay      String?        @map("business_day")
+  totalBase        Int            @map("total_base")
+  totalTax         Int            @map("total_tax")
+  total            Int
+  taxes            Json
+  payload          Json
+  status           EInvoiceStatus @default(PENDING)
+  pdfUrl           String?        @map("pdf_url")
+  error            String?
+  attempts         Int            @default(0)
+  idempotencyKey   String         @unique @map("idempotency_key")
+  createdAt        DateTime       @default(now()) @map("created_at")
+
+  @@index([billId])
+  @@index([status, createdAt])
+  @@index([businessDay])
+  @@map("einvoices")
+}
+
+model EInvoiceLink {
+  id         String   @id @default(uuid())
+  originalId String   @map("original_id")
+  linkedId   String   @map("linked_id")
+  kind       String
+  reason     String
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  @@map("einvoice_links")
+}
+
+enum DeliveryMode {
+  ROBOT
+  STAFF
+}
+
+enum RobotVendor {
+  SIMULATED
+  MQTT
+  ORIONSTAR
+  MANUAL
+}
+
+enum RobotState {
+  IDLE
+  BUSY
+  CHARGING
+  ERROR
+  OFFLINE
+  DISABLED
+}
+
+enum TripStage {
+  CREATED
+  ASSIGNED
+  AT_PICKUP
+  MOVING
+  ARRIVED
+  DELIVERED
+  RETURNING
+  DONE
+  FAILED
+  CANCELLED
+}
+
+model Robot {
+  id         String      @id @default(uuid())
+  code       String      @unique
+  name       String
+  vendor     RobotVendor
+  model      String?
+  serial     String?
+  /// Mã robot phía hãng/thiết bị (robot_id MQTT, SN OrionStar)
+  externalId String      @map("external_id")
+  state      RobotState  @default(IDLE)
+  battery    Int         @default(100)
+  location   String      @default("CHO")
+  zone       String?
+  lastSeenAt DateTime?   @map("last_seen_at")
+  error      String?
+  trips      DeliveryTrip[]
+
+  @@map("robots")
+}
+
+/// Chuyến giao món (mục 5.3). Mã khay = mã chuyến, in QR dán trên khay để xác thực pickup.
+model DeliveryTrip {
+  id          String     @id @default(uuid())
+  seqNo       Int        @default(autoincrement()) @map("seq_no")
+  code        String     @unique
+  robotId     String?    @map("robot_id")
+  sessionId   String     @map("session_id")
+  tableId     String     @map("table_id")
+  tableCode   String     @map("table_code")
+  stage       TripStage  @default(CREATED)
+  failReason  String?    @map("fail_reason")
+  createdAt   DateTime   @default(now()) @map("created_at")
+  assignedAt  DateTime?  @map("assigned_at")
+  pickedUpAt  DateTime?  @map("picked_up_at")
+  arrivedAt   DateTime?  @map("arrived_at")
+  deliveredAt DateTime?  @map("delivered_at")
+  endedAt     DateTime?  @map("ended_at")
+  version     Int        @default(0)
+  robot       Robot?     @relation(fields: [robotId], references: [id])
+  items       TripItem[]
+
+  @@index([stage])
+  @@index([sessionId])
+  @@map("delivery_trips")
+}
+
+model TripItem {
+  tripId      String       @map("trip_id")
+  orderItemId String       @map("order_item_id")
+  trip        DeliveryTrip @relation(fields: [tripId], references: [id])
+
+  @@id([tripId, orderItemId])
+  @@index([orderItemId])
+  @@map("trip_items")
+}

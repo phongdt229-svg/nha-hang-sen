@@ -1,0 +1,24 @@
+/* Bảng màu "Sen": hồng sen làm điểm nhấn, xanh lá sen cho trạng thái tốt. */
+@theme {
+  --color-sen-50: #fdf2f6;
+  --color-sen-100: #fce7ef;
+  --color-sen-200: #f9cfe0;
+  --color-sen-400: #ec79a6;
+  --color-sen-500: #e04f88;
+  --color-sen-600: #c93370;
+  --color-sen-700: #a8265b;
+  --color-la-500: #3f9c6d;
+  --color-la-600: #2f7d56;
+  --font-sans: 'Be Vietnam Pro', ui-sans-serif, system-ui, sans-serif;
+}
+
+@layer base {
+  html, body, #root { height: 100%; }
+  body { @apply bg-stone-50 text-stone-900 antialiased; }
+  button { cursor: pointer; }
+  button:disabled { cursor: not-allowed; }
+}
+
+@media print {
+  .no-print { display: none !important; }
+}

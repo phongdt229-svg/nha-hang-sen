@@ -1,0 +1,48 @@
+name: nha-hang-sen
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: nhs
+      POSTGRES_PASSWORD: nhs
+      POSTGRES_DB: nhs
+    ports: ['5432:5432']
+    volumes: [pgdata:/var/lib/postgresql/data]
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U nhs']
+      interval: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    ports: ['6379:6379']
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 5s
+      retries: 10
+
+  mqtt:
+    image: eclipse-mosquitto:2
+    ports: ['1883:1883']
+    volumes: [./mosquitto/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro]
+
+  api:
+    build: { context: .., dockerfile: apps/api/Dockerfile }
+    environment:
+      DATABASE_URL: postgresql://nhs:nhs@postgres:5432/nhs?schema=public
+      REDIS_URL: redis://redis:6379
+      JWT_SECRET: ${JWT_SECRET:-doi-chuoi-bi-mat-nay}
+      PORT: 3000
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
+    ports: ['3000:3000']
+
+  web:
+    build: { context: .., dockerfile: infra/web.Dockerfile }
+    depends_on: [api]
+    ports: ['8088:80']
+
+volumes:
+  pgdata:

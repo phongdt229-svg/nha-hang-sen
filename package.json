@@ -1,0 +1,23 @@
+{
+  "name": "nha-hang-thong-minh",
+  "private": true,
+  "packageManager": "pnpm@10.34.5",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "turbo run build",
+    "dev": "turbo run dev --parallel",
+    "typecheck": "turbo run typecheck",
+    "test": "turbo run test",
+    "infra:up": "docker compose -f infra/docker-compose.yml up -d postgres redis mqtt",
+    "db:migrate": "pnpm --filter @nhs/api prisma:migrate",
+    "db:seed": "pnpm --filter @nhs/api prisma:seed",
+    "format": "prettier --write ."
+  },
+  "devDependencies": {
+    "prettier": "^3.3.3",
+    "turbo": "^2.5.0",
+    "typescript": "~5.8.3"
+  }
+}

@@ -201,6 +201,25 @@ importers:
         specifier: ^6.3.0
         version: 6.4.3(@types/node@22.20.4)(jiti@2.7.0)(lightningcss@1.32.0)(terser@5.51.2)
 
+  apps/print-agent:
+    dependencies:
+      '@nhs/types':
+        specifier: workspace:*
+        version: link:../../packages/types
+    devDependencies:
+      '@types/node':
+        specifier: ^22.10.0
+        version: 22.20.4
+      tsup:
+        specifier: ^8.3.0
+        version: 8.5.1(jiti@2.7.0)(postcss@8.5.28)(typescript@5.8.3)
+      typescript:
+        specifier: ~5.8.3
+        version: 5.8.3
+      vitest:
+        specifier: ^3.2.0
+        version: 3.2.7(@types/node@22.20.4)(jiti@2.7.0)(lightningcss@1.32.0)(terser@5.51.2)
+
   apps/tablet:
     dependencies:
       '@nhs/types':

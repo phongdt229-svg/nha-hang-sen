@@ -1,4 +1,4 @@
-import { key, sessionWithOrder, startApp, type Harness } from './harness';
+import { key, sessionWithOrder, startApp, waitFor, type Harness } from './harness';
 
 /** Sprint 5: tách/gộp bill, hoàn tiền, kết ca, báo cáo, xuất file (mục 15). */
 describe('Sprint 5: tình huống tại quầy', () => {
@@ -96,8 +96,10 @@ describe('Sprint 5: tình huống tại quầy', () => {
     const bill = (await h.call('GET', `/sessions/${session.id}/bill`, cashier)).body;
     await h.call('POST', `/bills/${bill.id}/lock`, cashier, { version: bill.version });
     await pay(bill.id, 190_000);
-    // Giả lập bill thuộc một ngày kinh doanh đã qua.
+    // Giả lập bill (và hóa đơn điện tử của nó) thuộc một ngày kinh doanh đã qua.
+    await waitFor(() => h.prisma.eInvoice.count({ where: { billId: bill.id } }), (c) => c > 0);
     await h.prisma.bill.update({ where: { id: bill.id }, data: { businessDay: '2020-01-01' } });
+    await h.prisma.eInvoice.updateMany({ where: { billId: bill.id }, data: { businessDay: '2020-01-01' } });
     await h.call('POST', '/business-days/2020-01-01/close', manager);
     const before = (await h.call('GET', '/reports/revenue?from=2020-01-01&to=2020-01-01&group_by=day', manager)).body;
     expect(before.totals.net).toBe(190_000);

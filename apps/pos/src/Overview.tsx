@@ -10,9 +10,10 @@ interface OverviewData {
   tables: Partial<Record<TableStatus, number>>;
   servingUnpaid: number;
   byMethod: Record<string, number>;
+  einvoice: { revenue: number; invoiced: number; difference: number; unissued: number };
 }
 
-const METHOD_LABEL: Record<string, string> = { CASH: 'Tiền mặt', QR: 'QR ngân hàng', CARD: 'Thẻ', EWALLET: 'Ví điện tử' };
+export const METHOD_LABEL: Record<string, string> = { CASH: 'Tiền mặt', QR: 'QR ngân hàng', CARD: 'Thẻ', EWALLET: 'Ví điện tử' };
 
 export function Overview() {
   const { api, role } = usePos();
@@ -32,6 +33,12 @@ export function Overview() {
         <Stat label="Bàn đang dùng" value={String(inUse)} />
         <Stat label="Đang phục vụ, chưa thu" value={formatVnd(d.servingUnpaid)} />
       </div>
+      {(d.einvoice.difference !== 0 || d.einvoice.unissued > 0) && (
+        <p className="rounded-2xl bg-amber-50 p-4 text-sm text-amber-900 ring-1 ring-amber-200">
+          Doanh thu (sau hoàn tiền) {formatVnd(d.einvoice.revenue)} ≠ tổng hóa đơn đã phát hành {formatVnd(d.einvoice.invoiced)}
+          {d.einvoice.unissued > 0 && ` · ${d.einvoice.unissued} hóa đơn chưa phát hành`}. Kiểm tra mục Cảnh báo.
+        </p>
+      )}
       <div className="grid gap-3 md:grid-cols-2">
         <section className="rounded-2xl bg-white p-4 ring-1 ring-stone-200">
           <h2 className="mb-3 font-semibold">Theo phương thức thanh toán</h2>

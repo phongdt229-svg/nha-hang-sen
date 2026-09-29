@@ -154,3 +154,18 @@ export function splitBill(bill: PricedBill, groups: string[][], config: PricingC
   }
   return groups.map((ids) => summarize(ids.map((id) => byId.get(id)!), config));
 }
+
+/**
+ * Hoàn tiền sau khi đã xuất hóa đơn (mục 12.5): phân bổ số tiền hoàn (đã gồm VAT) vào các mức
+ * thuế của bill theo tỷ lệ thành tiền, trả về các dòng điều chỉnh giảm (số âm), tổng đúng bằng -amount.
+ */
+export function refundByTaxRate(amount: number, taxes: TaxSummary[]): TaxSummary[] {
+  assertMoney(amount, 'Số tiền hoàn');
+  const parts = allocate(amount, taxes.map((g) => g.base + g.tax));
+  return taxes
+    .map((g, i) => {
+      const tax = taxOf(parts[i], g.rateBp, true);
+      return { taxGroup: g.taxGroup, rateBp: g.rateBp, base: -(parts[i] - tax), tax: -tax };
+    })
+    .filter((g) => g.base !== 0 || g.tax !== 0);
+}

@@ -44,7 +44,20 @@ export class BillingService {
       bill.status === 'OPEN' || bill.status === 'SPLIT' || bill.status === 'VOID'
         ? await priceLive(tx, bill)
         : fromSnapshot(await tx.billLine.findMany({ where: { billId: bill.id } }));
-    return toBillDto(bill, priced, await this.paidAmount(tx, bill.id), await this.refundedAmount(tx, bill.id));
+    const dto = toBillDto(bill, priced, await this.paidAmount(tx, bill.id), await this.refundedAmount(tx, bill.id));
+    if (bill.status === 'PAID' || bill.status === 'CLOSED') {
+      const inv = await tx.eInvoice.findFirst({ where: { billId: bill.id, kind: 'ORIGINAL' }, orderBy: { createdAt: 'desc' } });
+      dto.einvoice = inv && {
+        id: inv.id,
+        status: inv.status,
+        number: inv.number,
+        series: inv.series,
+        lookupCode: inv.lookupCode,
+        lookupUrl: inv.lookupUrl,
+        error: inv.error,
+      };
+    }
+    return dto;
   }
 
   /** Bill chính của phiên: bill đang mở, hoặc bill còn hiệu lực mới nhất. */

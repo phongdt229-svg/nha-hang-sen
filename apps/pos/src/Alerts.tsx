@@ -3,6 +3,8 @@ import { Badge, Button, errorMessage, formatTime, minutesSince, Modal } from '@n
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
 import { STATION_LABEL, usePos } from './context';
+import { EInvoiceAlerts } from './EInvoice';
+import { PrinterPanel, usePrint } from './Printing';
 
 /** Phiếu bếp hết lượt gửi lại (FALLBACK): in phiếu giấy, xác nhận tay khi bếp đã nhận (mục 6.4). */
 export function Alerts({ tickets }: { tickets: KitchenTicketDto[] }) {
@@ -63,6 +65,8 @@ export function Alerts({ tickets }: { tickets: KitchenTicketDto[] }) {
           </div>
         </article>
       ))}
+      <PrinterPanel />
+      {role !== 'WAITER' && <EInvoiceAlerts />}
       {printing && <KitchenSlip ticket={printing} onClose={() => setPrinting(null)} />}
       {pairOpen && <PairKds onClose={() => setPairOpen(false)} />}
     </div>
@@ -70,6 +74,7 @@ export function Alerts({ tickets }: { tickets: KitchenTicketDto[] }) {
 }
 
 function KitchenSlip({ ticket, onClose }: { ticket: KitchenTicketDto; onClose: () => void }) {
+  const { print, busy } = usePrint();
   return (
     <>
       <div className="hidden print:block print:font-mono">
@@ -85,10 +90,17 @@ function KitchenSlip({ ticket, onClose }: { ticket: KitchenTicketDto; onClose: (
         ))}
       </div>
       <Modal title={`Phiếu bếp ${ticket.orderNumber}`} onClose={onClose}>
-        <p className="mb-4 text-sm text-stone-600">Bản in dự phòng dùng máy in của trình duyệt. Print agent ESC/POS sẽ thay thế ở bản sau.</p>
-        <Button className="w-full" onClick={() => window.print()}>
-          In
-        </Button>
+        <p className="mb-4 text-sm text-stone-600">
+          Phiếu bếp không vào được KDS đã tự gửi tới máy in của trạm. In lại ở máy in bếp, hoặc dùng máy in của trình duyệt nếu máy in bếp cũng lỗi.
+        </p>
+        <div className="grid grid-cols-2 gap-2">
+          <Button disabled={busy} onClick={() => void print(`/kitchen/tickets/${ticket.id}/print`, `phiếu bếp ${ticket.orderNumber}`)}>
+            In lại ở máy in bếp
+          </Button>
+          <Button variant="secondary" onClick={() => window.print()}>
+            In bằng trình duyệt
+          </Button>
+        </div>
       </Modal>
     </>
   );

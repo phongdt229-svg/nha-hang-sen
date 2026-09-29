@@ -17,6 +17,9 @@ export interface ApiClient {
   get<T>(path: string): Promise<T>;
   post<T>(path: string, body?: unknown, headers?: Record<string, string>): Promise<T>;
   patch<T>(path: string, body?: unknown): Promise<T>;
+  put<T>(path: string, body?: unknown): Promise<T>;
+  /** Tải file (xuất Excel/PDF) kèm token; trả về nội dung và tên file. */
+  download(path: string): Promise<{ blob: Blob; filename: string }>;
 }
 
 export function createApi(getToken: () => string | null, onUnauthorized?: () => void): ApiClient {
@@ -42,6 +45,23 @@ export function createApi(getToken: () => string | null, onUnauthorized?: () => 
     get: (p) => request('GET', p),
     post: (p, b, h) => request('POST', p, b ?? {}, h),
     patch: (p, b) => request('PATCH', p, b ?? {}),
+    put: (p, b) => request('PUT', p, b ?? {}),
+    download: async (path) => {
+      const token = getToken();
+      let res: Response;
+      try {
+        res = await fetch(API_BASE + path, { headers: token ? { authorization: `Bearer ${token}` } : {} });
+      } catch {
+        throw new NetworkError('Mất kết nối tới máy chủ');
+      }
+      if (res.status === 401) onUnauthorized?.();
+      if (!res.ok) {
+        const text = await res.text();
+        throw new ApiError(res.status, text ? JSON.parse(text) : null);
+      }
+      const name = /filename="([^"]+)"/.exec(res.headers.get('content-disposition') ?? '')?.[1] ?? 'bao-cao';
+      return { blob: await res.blob(), filename: name };
+    },
   };
 }
 

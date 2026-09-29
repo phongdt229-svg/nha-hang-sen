@@ -42,6 +42,7 @@ async function main() {
     ['thungan', 'Thu ngân', 'CASHIER'],
     ['phucvu', 'Phục vụ', 'WAITER'],
     ['bep', 'Bếp', 'KITCHEN'],
+    ['ketoan', 'Kế toán', 'ACCOUNTANT'],
   ] as const;
   for (const [username, name, role] of users) {
     await prisma.user.upsert({ where: { username }, update: {}, create: { username, name, role, passwordHash: hashPassword(password) } });

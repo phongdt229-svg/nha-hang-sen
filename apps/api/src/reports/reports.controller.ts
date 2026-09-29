@@ -3,6 +3,7 @@ import type { Response } from 'express';
 import { z } from 'zod';
 import { Allow, CurrentPrincipal, type Principal } from '../auth/principal';
 import { ZodPipe } from '../common/zod.pipe';
+import { EInvoiceService } from '../einvoice/einvoice.service';
 import { BusinessDayService } from './business-day.service';
 import { ExportService } from './export.service';
 import { GROUP_BY, ReportsService } from './reports.service';
@@ -11,7 +12,7 @@ import type { ReportTable } from './table';
 const Range = z.object({ from: z.string(), to: z.string() });
 const RevenueQuery = Range.extend({ group_by: z.enum(GROUP_BY).default('day') });
 const ExportQuery = Range.extend({
-  type: z.enum(['revenue', 'kpis', 'adjustments']).default('revenue'),
+  type: z.enum(['revenue', 'kpis', 'adjustments', 'einvoices']).default('revenue'),
   group_by: z.enum(GROUP_BY).default('day'),
   format: z.enum(['xlsx', 'csv', 'pdf']).default('xlsx'),
 });
@@ -24,6 +25,7 @@ export class ReportsController {
     private readonly reports: ReportsService,
     private readonly days: BusinessDayService,
     private readonly exporter: ExportService,
+    private readonly einvoice: EInvoiceService,
   ) {}
 
   @Get('reports/revenue')
@@ -64,6 +66,10 @@ export class ReportsController {
 
   private async tablesFor(type: string, from: string, to: string, groupBy: (typeof GROUP_BY)[number]): Promise<ReportTable[]> {
     if (type === 'adjustments') return [await this.reports.adjustments(from, to)];
+    if (type === 'einvoices') {
+      this.reports.checkRange(from, to);
+      return [await this.einvoice.taxSummary(from, to)];
+    }
     if (type === 'kpis') {
       const k = await this.reports.kpis(from, to);
       return [

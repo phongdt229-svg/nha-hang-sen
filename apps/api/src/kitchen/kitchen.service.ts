@@ -46,6 +46,13 @@ export class KitchenService implements OnModuleInit {
     };
   }
 
+  /** Phiếu bếp đầy đủ (bàn hiện tại, món của trạm) — dùng cho KDS và in phiếu giấy. */
+  async ticketDto(id: string): Promise<KitchenTicketDto> {
+    const t = await this.prisma.kitchenTicket.findUnique({ where: { id }, include: { order: { include: { items: { orderBy: { name: 'asc' } }, tickets: true } } } });
+    if (!t) throw new NotFoundException('Không tìm thấy phiếu bếp');
+    return this.toTicketDto(this.prisma, t);
+  }
+
   private loadTicket(tx: Tx, id: string): Promise<TicketWithOrder> {
     return tx.kitchenTicket.findUniqueOrThrow({
       where: { id },

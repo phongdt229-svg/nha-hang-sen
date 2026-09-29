@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { allocate, businessDay, divRound, MissingTaxRateError, priceBill, splitBill, type TaxRate } from './index';
+import { allocate, businessDay, divRound, MissingTaxRateError, priceBill, refundByTaxRate, splitBill, type TaxRate } from './index';
 
 // Bảng thuế suất có ngày hiệu lực: giảm 10% → 8% cho đồ ăn đến hết 2026, bia không được giảm.
 const RATES: TaxRate[] = [
@@ -97,5 +97,24 @@ describe('ngày kinh doanh', () => {
   it('bill 01:00 sáng thuộc ngày hôm trước', () => {
     expect(businessDay(new Date('2026-09-29T18:00:00Z'))).toBe('2026-09-29'); // 01:00 ngày 30 giờ VN
     expect(businessDay(new Date('2026-09-29T21:30:00Z'))).toBe('2026-09-30'); // 04:30 ngày 30 giờ VN
+  });
+});
+
+describe('hoàn tiền sau khi xuất hóa đơn', () => {
+  it('phân bổ vào từng mức thuế, tổng điều chỉnh giảm đúng bằng số hoàn', () => {
+    const bill = priceBill({ lines: LINES, taxRates: RATES, date: '2026-09-29' });
+    const adj = refundByTaxRate(95_000, bill.taxes);
+    expect(adj).toHaveLength(2);
+    expect(adj.every((g) => g.base <= 0 && g.tax <= 0)).toBe(true);
+    expect(adj.reduce((a, g) => a + g.base + g.tax, 0)).toBe(-95_000);
+    const food = adj.find((g) => g.taxGroup === 'FOOD')!;
+    expect(food.rateBp).toBe(800);
+    expect(food.tax).toBe(-divRound(-(food.base + food.tax) * 800, 10_800));
+  });
+
+  it('hoàn toàn bộ → khớp đúng số liệu bill', () => {
+    const bill = priceBill({ lines: LINES, taxRates: RATES, date: '2026-09-29' });
+    const adj = refundByTaxRate(bill.total, bill.taxes);
+    expect(adj.map((g) => -(g.base + g.tax))).toEqual(bill.taxes.map((g) => g.base + g.tax));
   });
 });

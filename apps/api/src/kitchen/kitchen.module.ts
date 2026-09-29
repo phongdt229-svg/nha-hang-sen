@@ -9,5 +9,6 @@ import { KitchenService } from './kitchen.service';
   imports: [BullModule.registerQueue({ name: KITCHEN_QUEUE })],
   controllers: [KitchenController],
   providers: [KitchenService, KitchenProcessor],
+  exports: [KitchenService],
 })
 export class KitchenModule {}

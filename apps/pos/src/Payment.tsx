@@ -3,6 +3,7 @@ import { Button, errorMessage, formatTime, formatVnd, Modal, newKey } from '@nhs
 import { useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
 import { usePos } from './context';
+import { printerProblem, usePrint, usePrintStatus } from './Printing';
 import { BillTable } from './TablePanel';
 
 interface PaymentResult {
@@ -114,8 +115,10 @@ export function PaymentBox({ bill, onCashPaid }: { bill: BillDto; onCashPaid: (c
   );
 }
 
-/** Phiếu thanh toán in qua trình duyệt (máy in nhiệt 80mm); chừa chỗ mã tra cứu hóa đơn điện tử. */
+/** Phiếu thanh toán: in ra máy in nhiệt ở quầy qua print agent; máy in của trình duyệt là dự phòng. */
 export function Receipt({ bill, onClose }: { bill: BillDto; onClose: () => void }) {
+  const { print, busy } = usePrint();
+  const printer = usePrintStatus().data?.printers.find((p) => p.target === 'RECEIPT');
   return (
     <>
       <div className="hidden text-[12px] print:block print:w-[72mm] print:font-mono">
@@ -142,14 +145,34 @@ export function Receipt({ bill, onClose }: { bill: BillDto; onClose: () => void 
           <span>TỔNG</span>
           <span>{formatVnd(bill.total)}</span>
         </div>
-        <p className="mt-2 text-center">Mã tra cứu hóa đơn điện tử: (sẽ in khi phát hành)</p>
+        {bill.einvoice?.status === 'ISSUED' ? (
+          <div className="mt-2 text-center">
+            <p>
+              Hóa đơn điện tử số {bill.einvoice.number} ({bill.einvoice.series})
+            </p>
+            <p>Mã tra cứu: {bill.einvoice.lookupCode}</p>
+            {bill.einvoice.lookupUrl && <p className="break-all">{bill.einvoice.lookupUrl}</p>}
+          </div>
+        ) : (
+          <p className="mt-2 text-center">Hóa đơn điện tử đang phát hành — tra cứu lại bằng mã bill {bill.number}</p>
+        )}
         <p className="text-center">Cảm ơn quý khách!</p>
       </div>
       <Modal title={`Phiếu thanh toán ${bill.number}`} onClose={onClose}>
         <BillTable bill={bill} />
-        <Button className="mt-4 w-full" onClick={() => window.print()}>
-          In phiếu
-        </Button>
+        {printer && printerProblem(printer) && (
+          <p className="mt-3 rounded-xl bg-red-50 p-3 text-sm text-red-800">
+            {printer.name}: {printer.stale ? 'print agent mất kết nối' : (printer.lastError ?? printer.state)}. Lệnh in sẽ nằm trong hàng đợi đến khi máy in sẵn sàng.
+          </p>
+        )}
+        <div className="mt-4 grid grid-cols-2 gap-2">
+          <Button disabled={busy} onClick={() => void print(`/bills/${bill.id}/print`, `phiếu ${bill.number}`)}>
+            In máy in quầy
+          </Button>
+          <Button variant="secondary" onClick={() => window.print()}>
+            In bằng trình duyệt
+          </Button>
+        </div>
       </Modal>
     </>
   );

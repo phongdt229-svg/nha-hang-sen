@@ -18,7 +18,7 @@ pnpm dev               # API :3000 + tablet :5173 + POS :5174 + KDS :5175
 
 | Màn hình | Địa chỉ | Đăng nhập |
 |---|---|---|
-| POS thu ngân / lễ tân | http://localhost:5174/pos/ | `quanly`, `thungan`, `phucvu` / `sen123` |
+| POS thu ngân / lễ tân | http://localhost:5174/pos/ | `quanly`, `thungan`, `phucvu`, `ketoan` / `sen123` |
 | Tablet gọi món | http://localhost:5173/tablet/ | Mã ghép 6 số tạo trên POS (bấm vào bàn → "Ghép tablet cho bàn này") |
 | KDS bếp | http://localhost:5175/kds/ | Mã ghép tạo trên POS (Cảnh báo bếp → "Ghép màn hình bếp") |
 | API docs (Swagger) | http://localhost:3000/docs | |
@@ -34,7 +34,7 @@ pnpm test        # unit test tính tiền + máy trạng thái, e2e API trên da
 pnpm typecheck
 ```
 
-E2E (`apps/api/test`) phủ các kịch bản bắt buộc ở mục 15 thuộc phạm vi lõi: bấm xác nhận 5 lần → 1 order; KDS không ACK → retry 3 lần → FALLBACK → nhập tay; chuyển bàn; hai thu ngân khóa cùng bill; thanh toán/webhook trùng; WebSocket rớt → bắt kịp bằng `lastEventId`; phân quyền. Unit test `packages/pricing` gồm golden test bill đồ ăn 8% + bia 10% và đổi thuế suất qua 01/01/2027.
+E2E (`apps/api/test`) phủ các kịch bản bắt buộc ở mục 15 thuộc phạm vi lõi: bấm xác nhận 5 lần → 1 order; KDS không ACK → retry 3 lần → FALLBACK → nhập tay; chuyển bàn; hai thu ngân khóa cùng bill; thanh toán/webhook trùng; in phiếu (hết giấy / mất kết nối → lệnh nằm trong hàng đợi, agent treo → giao lại, KDS fallback → in phiếu bếp); hóa đơn điện tử (tự phát hành, MST sai → sửa → phát hành lại, mất mạng → hàng đợi, tách bill → 2 hóa đơn, hoàn tiền → điều chỉnh giảm, doanh thu = tổng hóa đơn); WebSocket rớt → bắt kịp bằng `lastEventId`; phân quyền. Unit test `packages/pricing` gồm golden test bill đồ ăn 8% + bia 10% và đổi thuế suất qua 01/01/2027.
 
 ## Cấu trúc
 
@@ -43,6 +43,7 @@ apps/api        NestJS + Prisma + BullMQ + Socket.IO
 apps/tablet     React PWA – khách gọi món
 apps/pos        React – thu ngân, lễ tân, cảnh báo bếp, tổng quan
 apps/kds        React – màn hình bếp
+apps/print-agent Node.js chạy tại quán – nhận lệnh in qua LAN, gửi ESC/POS tới máy in nhiệt
 packages/types  Kiểu dữ liệu, bảng chuyển trạng thái, danh sách sự kiện
 packages/pricing Tính tiền: số nguyên đồng, VAT nhiều mức theo ngày hiệu lực, giảm giá, tách bill, ngày kinh doanh
 packages/ui     API client, WebSocket có bắt kịp sự kiện, component dùng chung
@@ -63,14 +64,26 @@ infra/          docker-compose, nginx, mosquitto
 | Sprint | Nội dung | Trạng thái |
 |---|---|---|
 | 0–4 | Nền móng, bàn/phiên, order idempotency, KDS ACK/retry, bill & thanh toán | Xong (backend + tablet/POS/KDS) |
-| 5 | Tách/hủy tách bill, gộp phiên, hoàn tiền (bút toán âm), kết ca + duyệt chênh lệch, báo cáo doanh thu/KPI/điều chỉnh, chốt ngày + job đêm, xuất Excel/CSV/PDF | Backend xong + test; **chưa có giao diện** |
+| 5 | Tách/hủy tách bill, gộp phiên, hoàn tiền (bút toán âm), kết ca + duyệt chênh lệch, báo cáo doanh thu/KPI/điều chỉnh, chốt ngày + job đêm, xuất Excel/CSV/PDF | Xong: backend + test + màn hình POS (tách/hủy tách bill, gộp bàn, hoàn tiền, mục Ca làm, mục Báo cáo có xuất file và chốt ngày) |
 | 6 | Webhook thanh toán có chữ ký, chống trùng, đối soát định kỳ | Backend xong + test |
-| 6 | Hóa đơn điện tử: gói `packages/einvoice-adapters` (interface + adapter giả lập), schema | **Đang làm**: chưa nối vào API |
+| 6 | Hóa đơn điện tử: tự phát hành sau thanh toán qua hàng đợi (idempotency theo bill), tra cứu MST, Failed → sửa người mua → gửi lại không trùng, mất mạng → xếp hàng + quét định kỳ, hoàn tiền → hóa đơn điều chỉnh giảm, điều chỉnh/thay thế (kế toán), bảng kê theo thuế suất, đối soát doanh thu = hóa đơn; POS nhập MST, in số/mã tra cứu, cảnh báo hóa đơn lỗi | Xong + test (adapter giả lập). **Chưa có:** adapter nhà cung cấp thật và webhook `/webhooks/einvoice/{provider}` — chờ sandbox |
 | 11–13 | Robot: `packages/robot-adapters` (giả lập, MQTT, thủ công, khung OrionStar), điều phối (gom món, chọn robot, xác thực khay, lỗi → giao robot khác, chuyển nhân viên, đổi bàn đích), chỉ số giao món | Backend xong + test; **chưa có màn hình điều phối/sơ đồ** |
-| 3 | Print agent ESC/POS | Chưa làm |
+| 3 | Print agent ESC/POS (`apps/print-agent`): hàng đợi lệnh in có idempotency, agent hỏi việc mỗi giây kèm trạng thái máy in, hết giấy / mất kết nối → lệnh nằm lại hàng đợi + POS báo lỗi, agent treo → hết hạn giữ lệnh thì giao lại; tự in phiếu bếp khi KDS FALLBACK; POS in phiếu thanh toán, in lại phiếu bếp, in thử, ghép agent | Xong + test (máy in TCP giả lập) |
 | 8 | AI tư vấn món (FastAPI) | Chưa làm |
 | 9–10, 14 | Kho nguyên liệu, định lượng, trừ kho, kiểm kê, food cost | Chưa làm |
 | 7 | Giám sát, sao lưu, k6, runbook | Chưa làm |
 | — | i18n tablet, firmware mBot2/ESP32, dashboard/back-office | Chưa làm |
+
+**Hóa đơn điện tử:** `EINVOICE_PROVIDER=mock` dùng adapter giả lập (MST thử: `0100109106`, `0312345678`; MST khác bị từ chối). `EINVOICE_AUTO=false` để thu ngân bấm phát hành thủ công. Cần xác nhận với kế toán theo NĐ 254/2026 trước khi dùng thật (mục 12).
+
+**Print agent** (chạy trên một máy tính trong LAN của quán, không cần Internet):
+
+```bash
+pnpm --filter @nhs/print-agent build
+# Lần đầu: tạo mã ghép trên POS (mục Cảnh báo → "Ghép print agent")
+PAIRING_CODE=123456 API_URL=http://192.168.1.10:3000 PRINTERS="BEP_NONG=tcp://192.168.1.51:9100;QUAY_BAR=tcp://192.168.1.52:9100@58;RECEIPT=tcp://192.168.1.50:9100" node apps/print-agent/dist/main.js
+```
+
+Máy in mạng dùng cổng RAW 9100; `@58` cho giấy 58mm; `console:` in ra màn hình, `file:đường-dẫn` ghi lệnh ESC/POS ra file để thử không cần máy in. Mặc định bỏ dấu tiếng Việt (`PRINT_ENCODING=ascii`) vì nhiều máy in nhiệt không có bảng mã tiếng Việt; máy in hỗ trợ UTF-8 thì đặt `PRINT_ENCODING=utf8`. Token thiết bị lưu ở `.print-agent-token`, các lần sau không cần mã ghép.
 
 Robot giả lập: 3 robot `R01–R03` có sẵn sau `pnpm db:seed`; tốc độ chỉnh bằng `SIM_SPEED`. Robot OrionStar cần tài liệu OpenAPI + appid/secret từ nhà phân phối để hiện thực `OrionStarClient`.

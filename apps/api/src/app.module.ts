@@ -5,11 +5,13 @@ import { Public } from './auth/principal';
 import { BillingModule } from './billing/billing.module';
 import { CommonModule } from './common/common.module';
 import { DispatchModule } from './dispatch/dispatch.module';
+import { EInvoiceModule } from './einvoice/einvoice.module';
 import { EventsModule } from './events/events.module';
 import { KitchenModule } from './kitchen/kitchen.module';
 import { MenuModule } from './menu/menu.module';
 import { OrdersModule } from './orders/orders.module';
 import { PaymentsModule } from './payments/payments.module';
+import { PrintingModule } from './printing/printing.module';
 import { PrismaModule } from './prisma/prisma.service';
 import { ReportsModule } from './reports/reports.module';
 import { SessionsModule } from './sessions/sessions.module';
@@ -47,6 +49,8 @@ class HealthController {
     BillingModule,
     ReportsModule,
     PaymentsModule,
+    EInvoiceModule,
+    PrintingModule,
     DispatchModule,
   ],
   controllers: [HealthController],

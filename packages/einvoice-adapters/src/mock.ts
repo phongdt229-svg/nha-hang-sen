@@ -29,6 +29,16 @@ export class MockEInvoiceAdapter implements EInvoiceAdapter {
 
   constructor(private readonly opts: { mauSo?: string; kyHieu?: string; lookupBase?: string } = {}) {}
 
+  /** Tiếp tục dãy số sau lần khởi động lại (mock giữ trạng thái trong bộ nhớ). */
+  resumeFrom(lastNumber: number) {
+    this.seq = Math.max(this.seq, lastNumber);
+  }
+
+  /** Hóa đơn gốc phát hành trước lần khởi động lại không còn trong bộ nhớ: chấp nhận nếu đúng định dạng số. */
+  private knowsOriginal(soHoaDon: string) {
+    return this.issued.has(soHoaDon) || /^\d{8}$/.test(soHoaDon);
+  }
+
   private ensureOnline() {
     if (this.offline) throw new EInvoiceUnavailableError('Không kết nối được nhà cung cấp hóa đơn (giả lập)');
   }
@@ -72,14 +82,14 @@ export class MockEInvoiceAdapter implements EInvoiceAdapter {
 
   async dieuChinh(soHoaDonGoc: string, noiDung: DieuChinhInput) {
     this.ensureOnline();
-    if (!this.issued.has(soHoaDonGoc)) throw new EInvoiceRejectedError(`Không tìm thấy hóa đơn gốc ${soHoaDonGoc}`);
+    if (!this.knowsOriginal(soHoaDonGoc)) throw new EInvoiceRejectedError(`Không tìm thấy hóa đơn gốc ${soHoaDonGoc}`);
     if (noiDung.nguoiMua) this.checkBuyer(noiDung);
     return this.issue(noiDung.khoa);
   }
 
   async thayThe(soHoaDonGoc: string, hoaDonMoi: HoaDonInput) {
     this.ensureOnline();
-    if (!this.issued.has(soHoaDonGoc)) throw new EInvoiceRejectedError(`Không tìm thấy hóa đơn gốc ${soHoaDonGoc}`);
+    if (!this.knowsOriginal(soHoaDonGoc)) throw new EInvoiceRejectedError(`Không tìm thấy hóa đơn gốc ${soHoaDonGoc}`);
     this.checkBuyer(hoaDonMoi);
     const r = this.issue(hoaDonMoi.khoa);
     this.issued.set(soHoaDonGoc, 'DA_CAP_MA');

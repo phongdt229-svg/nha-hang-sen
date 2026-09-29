@@ -12,6 +12,8 @@ const LoginSchema = z.object({ username: z.string().min(1), password: z.string()
 const PairingCodeSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('TABLET'), tableId: z.string().uuid() }),
   z.object({ kind: z.literal('KDS'), station: z.string().min(1) }),
+  // Print agent tại quán: một agent phục vụ nhiều máy in, khai báo trong cấu hình của agent.
+  z.object({ kind: z.literal('PRINTER') }),
 ]);
 
 const PairSchema = z.object({ code: z.string().length(6), name: z.string().min(1).max(60) });
@@ -36,7 +38,7 @@ export class AuthController {
     return { token: await this.jwt.signAsync(principal, { expiresIn: '12h' }), user: principal };
   }
 
-  /** Nhân viên tạo mã 6 số để ghép tablet với bàn hoặc KDS với trạm bếp. */
+  /** Nhân viên tạo mã 6 số để ghép tablet với bàn, KDS với trạm bếp, hoặc print agent. */
   @Allow('MANAGER', 'WAITER')
   @Post('devices/pairing-codes')
   async createPairingCode(@Body(new ZodPipe(PairingCodeSchema)) body: z.infer<typeof PairingCodeSchema>) {

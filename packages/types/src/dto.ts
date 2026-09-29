@@ -116,6 +116,48 @@ export interface BillDto {
   total: number;
   paid: number;
   refunded: number;
+  /** Hóa đơn điện tử gốc của bill (sau khi thanh toán). */
+  einvoice?: EInvoiceSummaryDto | null;
+}
+
+export type EInvoiceStatus = 'PENDING' | 'SENT' | 'ISSUED' | 'FAILED' | 'ADJUSTED' | 'REPLACED';
+export type EInvoiceKind = 'ORIGINAL' | 'ADJUSTMENT' | 'REPLACEMENT';
+
+export interface EInvoiceSummaryDto {
+  id: string;
+  status: EInvoiceStatus;
+  number: string | null;
+  series: string | null;
+  lookupCode: string | null;
+  lookupUrl: string | null;
+  error: string | null;
+}
+
+export interface EInvoiceDto extends EInvoiceSummaryDto {
+  billId: string;
+  billNumber: string;
+  kind: EInvoiceKind;
+  provider: string;
+  templateCode: string | null;
+  taxAuthorityCode: string | null;
+  issuedAt: string | null;
+  businessDay: string | null;
+  totalBase: number;
+  totalTax: number;
+  total: number;
+  taxes: { rate: number; base: number; tax: number }[];
+  buyer: BillBuyerDto | null;
+  attempts: number;
+  createdAt: string;
+}
+
+export interface BillBuyerDto {
+  kind: 'PERSON' | 'COMPANY';
+  taxCode: string | null;
+  name: string | null;
+  address: string | null;
+  email: string | null;
+  phone: string | null;
 }
 
 export type RobotVendor = 'SIMULATED' | 'MQTT' | 'ORIONSTAR' | 'MANUAL';

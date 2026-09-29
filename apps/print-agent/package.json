@@ -1,0 +1,22 @@
+{
+  "name": "@nhs/print-agent",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Print agent chạy tại quán: nhận lệnh in từ API qua LAN, gửi ESC/POS tới máy in nhiệt",
+  "main": "./dist/main.js",
+  "scripts": {
+    "build": "tsup src/main.ts --format cjs --clean",
+    "start": "node dist/main.js",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@nhs/types": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "tsup": "^8.3.0",
+    "typescript": "~5.8.3",
+    "vitest": "^3.2.0"
+  }
+}

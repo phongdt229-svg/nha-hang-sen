@@ -1,6 +1,5 @@
 import type { BillDto, MenuCategoryDto, MenuItemDto, OrderDto, SessionDto, TableDto } from '@nhs/types';
 import {
-  ApiError,
   Badge,
   Button,
   errorMessage,
@@ -16,7 +15,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
 import { PairingCode } from './Alerts';
 import { usePos } from './context';
-import { PaymentBox, Receipt } from './Payment';
+import { BillPanel } from './BillPanel';
 
 export function TablePanel({ table, tables, onClose }: { table: TableDto; tables: TableDto[]; onClose: () => void }) {
   // Giữ phiên đang xem kể cả khi vừa thanh toán xong (bàn chuyển CLEANING) để còn in phiếu.
@@ -84,6 +83,7 @@ function SessionPanel({ sessionId, tables }: { sessionId: string; tables: TableD
   const [tab, setTab] = useState<'orders' | 'bill'>('orders');
   const [picker, setPicker] = useState(false);
   const [moving, setMoving] = useState(false);
+  const [merging, setMerging] = useState(false);
   const session = useQuery({ queryKey: ['session', sessionId], queryFn: () => api.get<SessionDto>(`/sessions/${sessionId}`) });
   const orders = useQuery({ queryKey: ['orders', sessionId], queryFn: () => api.get<OrderDto[]>(`/sessions/${sessionId}/orders`) });
   const s = session.data;
@@ -103,6 +103,9 @@ function SessionPanel({ sessionId, tables }: { sessionId: string; tables: TableD
           <Button size="sm" variant="secondary" disabled={s.status === 'CLOSED'} onClick={() => setMoving(true)}>
             Chuyển bàn
           </Button>
+          <Button size="sm" variant="secondary" disabled={s.status !== 'OPEN'} onClick={() => setMerging(true)}>
+            Gộp bàn
+          </Button>
         </div>
       </div>
       <div className="flex gap-1 rounded-xl bg-stone-100 p-1">
@@ -115,6 +118,7 @@ function SessionPanel({ sessionId, tables }: { sessionId: string; tables: TableD
       {tab === 'orders' ? <OrdersList orders={orders.data ?? []} editable={s.status === 'OPEN'} /> : <BillPanel sessionId={sessionId} />}
       {picker && <OrderPicker sessionId={sessionId} onClose={() => setPicker(false)} />}
       {moving && <MoveTable session={s} tables={tables} onClose={() => setMoving(false)} />}
+      {merging && <MergeTables session={s} tables={tables} onClose={() => setMerging(false)} />}
     </div>
   );
 }
@@ -164,84 +168,6 @@ function OrdersList({ orders, editable }: { orders: OrderDto[]; editable: boolea
           </ul>
         </section>
       ))}
-    </div>
-  );
-}
-
-function BillPanel({ sessionId }: { sessionId: string }) {
-  const { api, toast, role } = usePos();
-  const qc = useQueryClient();
-  const bill = useQuery({ queryKey: ['bill', sessionId], queryFn: () => api.get<BillDto>(`/sessions/${sessionId}/bill`) });
-  const [printing, setPrinting] = useState(false);
-  const [change, setChange] = useState<number | null>(null);
-  const b = bill.data;
-  if (!b) return <p className="text-stone-500">Đang tải…</p>;
-  const isManager = role === 'MANAGER' || role === 'ADMIN';
-
-  async function act(path: string, body: Record<string, unknown>) {
-    try {
-      await api.post(path, { version: b!.version, ...body });
-    } catch (e) {
-      toast(errorMessage(e));
-      if (e instanceof ApiError && e.body?.error === 'VERSION_CONFLICT') void bill.refetch();
-    } finally {
-      void qc.invalidateQueries({ queryKey: ['bill'] });
-      void qc.invalidateQueries({ queryKey: ['session'] });
-      void qc.invalidateQueries({ queryKey: ['tables'] });
-    }
-  }
-
-  function discount() {
-    const amount = Number(window.prompt('Số tiền giảm (đồng)?', String(b!.discount)) ?? NaN);
-    if (!Number.isInteger(amount) || amount < 0) return;
-    const reason = window.prompt('Lý do giảm giá?');
-    if (reason) void act(`/bills/${b!.id}/discount`, { amount, reason });
-  }
-
-  return (
-    <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <span className="font-semibold">Bill {b.number}</span>
-        <Badge tone={b.status === 'OPEN' ? 'info' : b.status === 'LOCKED' ? 'warn' : 'good'}>
-          {b.status === 'OPEN' ? 'Đang mở' : b.status === 'LOCKED' ? 'Đã khóa' : 'Đã thanh toán'}
-        </Badge>
-      </div>
-      <BillTable bill={b} />
-      <div className="flex flex-wrap gap-2">
-        {b.status === 'OPEN' && (
-          <>
-            <Button onClick={() => void act(`/bills/${b.id}/lock`, {})} disabled={b.lines.length === 0}>
-              Khóa bill để thanh toán
-            </Button>
-            {isManager && (
-              <Button variant="secondary" onClick={discount}>
-                Giảm giá
-              </Button>
-            )}
-          </>
-        )}
-        {b.status === 'LOCKED' && isManager && b.paid === 0 && (
-          <Button
-            variant="secondary"
-            onClick={() => {
-              const reason = window.prompt('Lý do mở khóa bill?');
-              if (reason) void act(`/bills/${b.id}/unlock`, { reason });
-            }}
-          >
-            Mở khóa bill
-          </Button>
-        )}
-        {b.status !== 'OPEN' && (
-          <Button variant="secondary" onClick={() => setPrinting(true)}>
-            In phiếu thanh toán
-          </Button>
-        )}
-      </div>
-      {change !== null && change > 0 && (
-        <p className="rounded-xl bg-emerald-50 p-3 text-center text-lg font-bold text-emerald-800">Tiền thừa trả khách: {formatVnd(change)}</p>
-      )}
-      {b.status === 'LOCKED' && <PaymentBox bill={b} onCashPaid={setChange} />}
-      {printing && <Receipt bill={b} onClose={() => setPrinting(false)} />}
     </div>
   );
 }
@@ -373,6 +299,36 @@ function MoveTable({ session, tables, onClose }: { session: SessionDto; tables: 
         {free.map((t) => (
           <Button key={t.id} variant="secondary" onClick={() => void move(t.id)}>
             {t.code} <span className="text-xs text-stone-500">{t.seats} ghế</span>
+          </Button>
+        ))}
+      </div>
+    </Modal>
+  );
+}
+
+/** Gộp phiên của bàn khác vào phiên này: order giữ nguyên lịch sử, một bill chung (mục 17.4 Sprint 5). */
+function MergeTables({ session, tables, onClose }: { session: SessionDto; tables: TableDto[]; onClose: () => void }) {
+  const { api, toast } = usePos();
+  const qc = useQueryClient();
+  const others = tables.filter((t) => t.status === 'DINING' && t.sessionId && t.sessionId !== session.id);
+  async function merge(t: TableDto) {
+    if (!window.confirm(`Gộp bàn ${t.code} vào ${session.code}? Hai bàn dùng chung một bill.`)) return;
+    try {
+      await api.post(`/sessions/${session.id}/merge`, { sourceSessionId: t.sessionId });
+      void qc.invalidateQueries();
+      toast(`Đã gộp bàn ${t.code}`, 'good');
+      onClose();
+    } catch (e) {
+      toast(errorMessage(e));
+    }
+  }
+  return (
+    <Modal title={`Gộp bàn khác vào ${session.code}`} onClose={onClose}>
+      {others.length === 0 && <p className="text-stone-500">Không có bàn nào khác đang ăn (chưa khóa bill) để gộp.</p>}
+      <div className="grid grid-cols-3 gap-2">
+        {others.map((t) => (
+          <Button key={t.id} variant="secondary" onClick={() => void merge(t)}>
+            {t.code}
           </Button>
         ))}
       </div>

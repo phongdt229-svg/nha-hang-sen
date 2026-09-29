@@ -541,6 +541,8 @@ model EInvoiceLink {
   reason     String
   createdAt  DateTime @default(now()) @map("created_at")
 
+  @@index([originalId])
+  @@index([linkedId])
   @@map("einvoice_links")
 }
 
@@ -632,4 +634,52 @@ model TripItem {
   @@id([tripId, orderItemId])
   @@index([orderItemId])
   @@map("trip_items")
+}
+
+enum PrinterState {
+  UNKNOWN
+  ONLINE
+  OFFLINE
+  PAPER_OUT
+  ERROR
+}
+
+enum PrintJobStatus {
+  QUEUED
+  PRINTING
+  DONE
+  CANCELLED
+}
+
+/// Máy in tại quán, do print agent tự khai báo khi gửi nhịp (mục 13.4).
+model Printer {
+  target     String       @id
+  name       String
+  state      PrinterState @default(UNKNOWN)
+  lastError  String?      @map("last_error")
+  lastSeenAt DateTime?    @map("last_seen_at")
+  agentId    String?      @map("agent_id")
+
+  @@map("printers")
+}
+
+/// Hàng đợi lệnh in: máy in hết giấy / mất kết nối thì lệnh nằm lại trong hàng đợi.
+model PrintJob {
+  id             String         @id @default(uuid())
+  target         String
+  kind           String
+  title          String
+  document       Json
+  status         PrintJobStatus @default(QUEUED)
+  attempts       Int            @default(0)
+  error          String?
+  refType        String?        @map("ref_type")
+  refId          String?        @map("ref_id")
+  leasedUntil    DateTime?      @map("leased_until")
+  idempotencyKey String         @unique @map("idempotency_key")
+  createdAt      DateTime       @default(now()) @map("created_at")
+  printedAt      DateTime?      @map("printed_at")
+
+  @@index([target, status, createdAt])
+  @@map("print_jobs")
 }

@@ -1,9 +1,12 @@
-import { OnGatewayConnection, WebSocketGateway, WebSocketServer } from '@nestjs/websockets';
+import { OnGatewayConnection, OnGatewayDisconnect, WebSocketGateway, WebSocketServer } from '@nestjs/websockets';
 import { rooms as R, type DomainEvent } from '@nhs/types';
 import type { Server, Socket } from 'socket.io';
 import { AuthGuard } from '../auth/auth.guard';
 import type { Principal } from '../auth/principal';
+import { metrics } from '../observability/metrics';
 import { BROADCAST } from './events.service';
+
+const clientKind = (p: Principal) => (p.kind === 'device' ? p.deviceKind : 'STAFF');
 
 /** Phòng mà một principal được phép nghe (mục 8). */
 export function roomsOf(p: Principal, requestedStation?: string): string[] {
@@ -17,7 +20,7 @@ export function roomsOf(p: Principal, requestedStation?: string): string[] {
 }
 
 @WebSocketGateway({ cors: { origin: true } })
-export class RealtimeGateway implements OnGatewayConnection {
+export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect {
   @WebSocketServer() server: Server;
 
   constructor(private readonly auth: AuthGuard) {}
@@ -30,10 +33,16 @@ export class RealtimeGateway implements OnGatewayConnection {
       const station = socket.handshake.auth?.station as string | undefined;
       socket.data.principal = principal;
       await socket.join(roomsOf(principal, station));
+      metrics.wsClients.inc({ kind: clientKind(principal) });
     } catch {
       socket.emit('error', { message: 'Unauthorized' });
       socket.disconnect(true);
     }
+  }
+
+  handleDisconnect(socket: Socket) {
+    const p = socket.data.principal as Principal | undefined;
+    if (p) metrics.wsClients.inc({ kind: clientKind(p) }, -1);
   }
 
   /** Dữ liệu tức thời (vị trí robot): gửi "volatile", không lưu sổ, mất gói cũng không sao. */

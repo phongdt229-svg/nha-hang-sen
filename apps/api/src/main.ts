@@ -4,8 +4,10 @@ import { NestFactory } from '@nestjs/core';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { AppModule } from './app.module';
 import { ErrorsFilter } from './common/errors.filter';
+import { httpMetrics } from './observability/http-metrics';
 
 export function configureApp(app: INestApplication) {
+  app.use(httpMetrics);
   app.enableCors({ origin: true });
   app.useGlobalFilters(new ErrorsFilter());
   app.enableShutdownHooks();

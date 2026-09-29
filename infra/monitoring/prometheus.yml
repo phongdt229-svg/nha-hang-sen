@@ -1,0 +1,17 @@
+# Prometheus tại quán: đọc số liệu API mỗi 15 giây, giữ 30 ngày.
+global:
+  scrape_interval: 15s
+  evaluation_interval: 30s
+
+rule_files:
+  - /etc/prometheus/alerts.yml
+
+scrape_configs:
+  - job_name: nhs-api
+    metrics_path: /metrics
+    # Đặt METRICS_TOKEN ở API thì bỏ chú thích và ghi token vào file này.
+    # authorization:
+    #   credentials_file: /etc/prometheus/metrics-token
+    static_configs:
+      # api: API chạy trong docker compose; host.docker.internal: API chạy bằng `pnpm dev` trên máy.
+      - targets: ['api:3000', 'host.docker.internal:3000']

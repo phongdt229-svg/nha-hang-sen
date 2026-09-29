@@ -1,48 +1,155 @@
 name: nha-hang-sen
 
+# Server tại quán (edge): mọi dịch vụ tự khởi động lại sau mất điện/khởi động lại máy (restart: unless-stopped).
+# Giám sát: `docker compose --profile monitoring up -d`. Diễn tập khôi phục: xem infra/backup/README.md.
+
+x-restart: &restart
+  restart: unless-stopped
+
 services:
   postgres:
+    <<: *restart
     image: postgres:16-alpine
     environment:
       POSTGRES_USER: nhs
-      POSTGRES_PASSWORD: nhs
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-nhs}
       POSTGRES_DB: nhs
+    # Lưu trữ WAL liên tục (RPO < 5 phút, mục 17.2): mỗi đoạn WAL chép sang volume backups,
+    # archive_timeout=60 buộc đóng đoạn ít nhất mỗi phút kể cả khi quán vắng.
+    command:
+      - postgres
+      - -c
+      - hba_file=/etc/postgresql/pg_hba.conf
+      - -c
+      - wal_level=replica
+      - -c
+      - archive_mode=on
+      - -c
+      - archive_command=test -d /backups/wal && test ! -f /backups/wal/%f && cp %p /backups/wal/%f
+      - -c
+      - archive_timeout=60
     ports: ['5432:5432']
-    volumes: [pgdata:/var/lib/postgresql/data]
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - backups:/backups
+      - ./postgres/pg_hba.conf:/etc/postgresql/pg_hba.conf:ro
     healthcheck:
       test: ['CMD-SHELL', 'pg_isready -U nhs']
       interval: 5s
       retries: 10
 
   redis:
+    <<: *restart
     image: redis:7-alpine
+    # Ghi AOF để hàng đợi (gửi lại phiếu bếp, hóa đơn) không mất khi mất điện.
+    command: ['redis-server', '--appendonly', 'yes']
     ports: ['6379:6379']
+    volumes: [redisdata:/data]
     healthcheck:
       test: ['CMD', 'redis-cli', 'ping']
       interval: 5s
       retries: 10
 
   mqtt:
+    <<: *restart
     image: eclipse-mosquitto:2
     ports: ['1883:1883']
     volumes: [./mosquitto/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro]
 
   api:
+    <<: *restart
     build: { context: .., dockerfile: apps/api/Dockerfile }
     environment:
-      DATABASE_URL: postgresql://nhs:nhs@postgres:5432/nhs?schema=public
+      DATABASE_URL: postgresql://nhs:${POSTGRES_PASSWORD:-nhs}@postgres:5432/nhs?schema=public
       REDIS_URL: redis://redis:6379
       JWT_SECRET: ${JWT_SECRET:-doi-chuoi-bi-mat-nay}
       PORT: 3000
+      METRICS_TOKEN: ${METRICS_TOKEN:-}
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
+      TELEGRAM_CHAT_ID: ${TELEGRAM_CHAT_ID:-}
+      NOTIFY_WEBHOOK_URL: ${NOTIFY_WEBHOOK_URL:-}
     depends_on:
       postgres: { condition: service_healthy }
       redis: { condition: service_healthy }
     ports: ['3000:3000']
+    healthcheck:
+      test: ['CMD', 'wget', '-qO-', 'http://127.0.0.1:3000/health/ready']
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
 
   web:
+    <<: *restart
     build: { context: .., dockerfile: infra/web.Dockerfile }
     depends_on: [api]
     ports: ['8088:80']
 
+  # Sao lưu nền hằng đêm + dọn bản cũ; WAL được Postgres tự chép liên tục (xem command của postgres).
+  backup:
+    <<: *restart
+    image: postgres:16-alpine
+    environment:
+      PGHOST: postgres
+      PGUSER: nhs
+      PGPASSWORD: ${POSTGRES_PASSWORD:-nhs}
+      TZ: Asia/Ho_Chi_Minh
+      BACKUP_HOUR: ${BACKUP_HOUR:-3}
+      BACKUP_KEEP_DAYS: ${BACKUP_KEEP_DAYS:-7}
+      # Lệnh đẩy bản sao lưu lên cloud sau mỗi lần sao lưu (rclone, aws s3 sync…), để trống nếu chưa có.
+      BACKUP_SYNC_CMD: ${BACKUP_SYNC_CMD:-}
+    entrypoint: ['/bin/sh', '/scripts/backup-loop.sh']
+    volumes:
+      - backups:/backups
+      - ./backup:/scripts:ro
+    depends_on:
+      postgres: { condition: service_healthy }
+
+  # Diễn tập khôi phục: `docker compose -f infra/docker-compose.yml --profile drill run --rm restore-drill`
+  restore-drill:
+    profiles: [drill]
+    image: postgres:16-alpine
+    environment:
+      PGHOST: postgres
+      PGUSER: nhs
+      PGPASSWORD: ${POSTGRES_PASSWORD:-nhs}
+      PGDATABASE: nhs
+    entrypoint: ['/bin/sh', '/scripts/restore-drill.sh']
+    volumes:
+      - backups:/backups:ro
+      - ./backup:/scripts:ro
+    depends_on:
+      postgres: { condition: service_healthy }
+
+  prometheus:
+    <<: *restart
+    profiles: [monitoring]
+    image: prom/prometheus:v3.5.0
+    command: ['--config.file=/etc/prometheus/prometheus.yml', '--storage.tsdb.retention.time=30d']
+    extra_hosts: ['host.docker.internal:host-gateway']
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./monitoring/alerts.yml:/etc/prometheus/alerts.yml:ro
+      - promdata:/prometheus
+    ports: ['9090:9090']
+
+  grafana:
+    <<: *restart
+    profiles: [monitoring]
+    image: grafana/grafana:12.1.1
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-sen123}
+      GF_USERS_DEFAULT_LANGUAGE: vi-VN
+    volumes:
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./monitoring/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafanadata:/var/lib/grafana
+    ports: ['3001:3000']
+    depends_on: [prometheus]
+
 volumes:
   pgdata:
+  redisdata:
+  backups:
+  promdata:
+  grafanadata:

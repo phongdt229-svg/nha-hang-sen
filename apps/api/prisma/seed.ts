@@ -50,9 +50,11 @@ async function main() {
 
   const zones = ['Tầng 1', 'Tầng 1', 'Tầng 1', 'Tầng 1', 'Tầng 2', 'Tầng 2', 'Tầng 2', 'Tầng 2', 'Sân vườn', 'Sân vườn', 'Sân vườn', 'Sân vườn'];
   const seats = [2, 2, 4, 4, 4, 6, 6, 8, 4, 4, 6, 10];
-  for (let i = 0; i < zones.length; i++) {
+  // SEED_TABLES=40 tạo đủ quy mô mục 17.2 cho kiểm thử tải; bàn thêm xếp ở Tầng 3.
+  const tableCount = Math.max(zones.length, Number(process.env.SEED_TABLES ?? zones.length));
+  for (let i = 0; i < tableCount; i++) {
     const code = `T${String(i + 1).padStart(2, '0')}`;
-    await prisma.table.upsert({ where: { code }, update: {}, create: { code, seats: seats[i], zone: zones[i] } });
+    await prisma.table.upsert({ where: { code }, update: {}, create: { code, seats: seats[i] ?? 4, zone: zones[i] ?? 'Tầng 3' } });
   }
 
   let sort = 0;

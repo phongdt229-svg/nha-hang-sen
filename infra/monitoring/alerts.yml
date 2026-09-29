@@ -1,0 +1,43 @@
+# Luật cảnh báo hiển thị trên Prometheus/Grafana. Cảnh báo gửi Telegram/Zalo do watchdog trong API
+# đảm nhiệm (không cần Alertmanager); các luật này để theo dõi xu hướng và mục tiêu 17.2.
+groups:
+  - name: nha-hang-sen
+    rules:
+      - alert: ApiDown
+        expr: up{job="nhs-api"} == 0 and on() count(up{job="nhs-api"} == 1) == 0
+        for: 1m
+        labels: { severity: critical }
+        annotations: { summary: 'Không đọc được số liệu từ API — server tại quán có thể đã dừng' }
+      - alert: ApiSlow
+        expr: histogram_quantile(0.95, sum by (le) (rate(nhs_http_request_duration_seconds_bucket[5m]))) > 0.3
+        for: 10m
+        labels: { severity: warning }
+        annotations: { summary: 'p95 thời gian phản hồi API vượt 300 ms (mục 17.2)' }
+      - alert: KdsAckSlow
+        expr: histogram_quantile(0.95, sum by (le) (rate(nhs_kds_ack_latency_seconds_bucket{via="kds"}[10m]))) > 1
+        for: 10m
+        labels: { severity: warning }
+        annotations: { summary: 'p95 order → KDS ACK vượt 1 giây (mục 17.2)' }
+      - alert: KdsFallback
+        expr: increase(nhs_kds_fallback_total[10m]) > 0
+        labels: { severity: warning }
+        annotations: { summary: 'Có phiếu bếp không vào KDS trong 10 phút qua' }
+      - alert: OutboxStuck
+        expr: max(nhs_outbox_oldest_seconds) > 30
+        for: 1m
+        labels: { severity: critical }
+        annotations: { summary: 'Sự kiện chưa phát quá 30 giây — màn hình bếp/tablet có thể không cập nhật' }
+      - alert: DependencyDown
+        expr: min by (dependency) (nhs_dependency_up) == 0
+        for: 1m
+        labels: { severity: critical }
+        annotations: { summary: '{{ $labels.dependency }} không phản hồi' }
+      - alert: PrinterDown
+        expr: min by (target) (nhs_printer_up) == 0
+        for: 2m
+        labels: { severity: warning }
+        annotations: { summary: 'Máy in {{ $labels.target }} không sẵn sàng' }
+      - alert: ServerErrors
+        expr: sum(increase(nhs_http_errors_total[5m])) > 5
+        labels: { severity: warning }
+        annotations: { summary: 'Nhiều lỗi 5xx trong 5 phút' }

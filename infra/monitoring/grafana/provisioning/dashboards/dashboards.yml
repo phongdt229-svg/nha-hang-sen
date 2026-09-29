@@ -1,0 +1,7 @@
+apiVersion: 1
+providers:
+  - name: nha-hang-sen
+    folder: Nhà hàng Sen
+    type: file
+    options:
+      path: /var/lib/grafana/dashboards

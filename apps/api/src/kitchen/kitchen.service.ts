@@ -8,6 +8,7 @@ import { OutboxPublisher } from '../events/outbox.publisher';
 import { PrismaService, type Tx } from '../prisma/prisma.service';
 import { currentTables } from '../sessions/session.helpers';
 import { orderNumber, toOrderDto, toOrderItemDto } from '../orders/order.mapper';
+import { metrics } from '../observability/metrics';
 import { KITCHEN_QUEUE, kitchenConfig, retryDelay } from './kitchen.config';
 
 export interface AckCheckJob {
@@ -151,7 +152,10 @@ export class KitchenService implements OnModuleInit {
     const dto = await this.prisma.$transaction(async (tx) => {
       const t = await this.lockTicket(tx, ticketId);
       if (t.status === 'ACKED') return this.toTicketDto(tx, t);
-      await tx.kitchenTicket.update({ where: { id: t.id }, data: { status: 'ACKED', ackedAt: new Date() } });
+      const ackedAt = new Date();
+      await tx.kitchenTicket.update({ where: { id: t.id }, data: { status: 'ACKED', ackedAt } });
+      // Từ lúc xác nhận order đến khi bếp nhận (mục 17.2); phiếu fallback nhập tay tính riêng.
+      metrics.kdsAckLatency.observe((ackedAt.getTime() - t.order.createdAt.getTime()) / 1000, { station: t.station, via: t.status === 'FALLBACK' ? 'manual' : 'kds' });
       await tx.orderItem.updateMany({
         where: { orderId: t.orderId, station: t.station, status: { in: ['SENT', 'FALLBACK'] } },
         data: { status: 'KDS_ACK' },

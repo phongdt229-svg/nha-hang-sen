@@ -26,7 +26,6 @@ import { actorId, type Principal } from '../auth/principal';
 import { billNumber, fromSnapshot } from '../billing/bill.calc';
 import { cutoffHour } from '../billing/billing.service';
 import { AuditService } from '../common/audit.service';
-import { Notifier } from '../common/notifier';
 import { EventsService } from '../events/events.service';
 import { OutboxPublisher } from '../events/outbox.publisher';
 import { PrismaService, type Tx } from '../prisma/prisma.service';
@@ -39,7 +38,6 @@ export const EINVOICE_ADAPTER = Symbol('EINVOICE_ADAPTER');
 
 const autoIssue = () => process.env.EINVOICE_AUTO !== 'false';
 const retryAfterMs = () => Number(process.env.EINVOICE_RETRY_AFTER_MS ?? 60_000);
-const backlogAlertMs = () => Number(process.env.EINVOICE_BACKLOG_ALERT_MS ?? 30 * 60_000);
 
 /** Trạng thái còn hiệu lực khi cộng doanh thu hóa đơn (bản bị thay thế không tính). */
 const EFFECTIVE: EInvoiceStatus[] = ['ISSUED', 'ADJUSTED'];
@@ -74,7 +72,6 @@ export class EInvoiceService implements OnModuleInit {
     private readonly events: EventsService,
     private readonly outbox: OutboxPublisher,
     private readonly audit: AuditService,
-    private readonly notifier: Notifier,
     @Inject(EINVOICE_ADAPTER) readonly adapter: EInvoiceAdapter,
     @InjectQueue(EINVOICE_QUEUE) private readonly queue: Queue,
   ) {}
@@ -263,8 +260,7 @@ export class EInvoiceService implements OnModuleInit {
   }
 
   /**
-   * Quét định kỳ: gửi lại hóa đơn còn chờ (mất Internet, tiến trình khởi động lại) và
-   * cảnh báo khi tồn đọng quá thời hạn cấu hình (mục 12.4).
+   * Quét định kỳ: gửi lại hóa đơn còn chờ (mất Internet, tiến trình khởi động lại).
    */
   async sweep() {
     const stale = await this.prisma.eInvoice.findMany({
@@ -273,11 +269,8 @@ export class EInvoiceService implements OnModuleInit {
       take: 200,
     });
     for (const s of stale) await this.enqueue(s.id);
-    const overdue = await this.prisma.eInvoice.count({
-      where: { status: { in: ['PENDING', 'SENT', 'FAILED'] }, createdAt: { lte: new Date(Date.now() - backlogAlertMs()) } },
-    });
-    if (overdue > 0) await this.notifier.send('Hóa đơn điện tử tồn đọng', `${overdue} hóa đơn chưa phát hành quá hạn, cần thu ngân xử lý.`);
-    return { requeued: stale.length, overdue };
+    // Cảnh báo tồn đọng do watchdog gửi (observability), có chống gửi lặp.
+    return { requeued: stale.length };
   }
 
   /** Chạy ngay các hóa đơn đang chờ (thu ngân bấm "Gửi lại tất cả" khi có mạng). */

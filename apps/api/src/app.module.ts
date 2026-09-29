@@ -11,6 +11,7 @@ import { KitchenModule } from './kitchen/kitchen.module';
 import { MenuModule } from './menu/menu.module';
 import { OrdersModule } from './orders/orders.module';
 import { PaymentsModule } from './payments/payments.module';
+import { ObservabilityModule } from './observability/observability.module';
 import { PrintingModule } from './printing/printing.module';
 import { PrismaModule } from './prisma/prisma.service';
 import { ReportsModule } from './reports/reports.module';
@@ -51,6 +52,7 @@ class HealthController {
     PaymentsModule,
     EInvoiceModule,
     PrintingModule,
+    ObservabilityModule,
     DispatchModule,
   ],
   controllers: [HealthController],

@@ -40,6 +40,9 @@ export class AuthGuard implements CanActivate {
       if (!device || device.revokedAt) throw new UnauthorizedException('Thiết bị đã bị thu hồi');
       return { ...principal, tableId: device.tableId, station: device.station };
     }
-    return principal;
+    // Nhân viên nghỉ việc / đổi vai trò có hiệu lực ngay, không chờ token 12 giờ hết hạn.
+    const user = await this.prisma.user.findUnique({ where: { id: principal.sub }, select: { active: true, role: true, name: true } });
+    if (!user || !user.active) throw new UnauthorizedException('Tài khoản đã bị khóa');
+    return { ...principal, role: user.role, name: user.name };
   }
 }

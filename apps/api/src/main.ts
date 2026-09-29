@@ -15,6 +15,11 @@ export function configureApp(app: INestApplication) {
 }
 
 async function bootstrap() {
+  // Không chạy môi trường thật với khóa ký token mặc định: ai biết khóa là giả được token quản lý.
+  const secret = process.env.JWT_SECRET ?? '';
+  if (process.env.NODE_ENV === 'production' && (secret.length < 32 || ['dev-secret', 'doi-chuoi-bi-mat-nay'].includes(secret))) {
+    throw new Error('JWT_SECRET chưa đặt hoặc quá ngắn (cần ≥ 32 ký tự ngẫu nhiên). Xem docs/van-hanh/trien-khai-tai-quan.md');
+  }
   const app = configureApp(await NestFactory.create(AppModule, { rawBody: true }));
   const doc = SwaggerModule.createDocument(
     app,

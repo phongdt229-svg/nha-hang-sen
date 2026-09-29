@@ -2,6 +2,7 @@ import type { DomainEvent, KitchenTicketDto, TableDto } from '@nhs/types';
 import { Button, ConnectionDot, createApi, LoginScreen, Logo, storage, useRealtime, useToast } from '@nhs/ui';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useCallback, useMemo, useState } from 'react';
+import { Accounts, ChangePassword } from './Accounts';
 import { Alerts } from './Alerts';
 import { Pos } from './context';
 import { Overview } from './Overview';
@@ -39,7 +40,7 @@ export function App() {
   return <Shell token={token} onLogout={logout} />;
 }
 
-type Tab = 'tables' | 'alerts' | 'overview' | 'shift' | 'reports';
+type Tab = 'tables' | 'alerts' | 'overview' | 'shift' | 'reports' | 'accounts';
 
 /** Mục hiện theo vai trò (mục 9): kế toán chỉ xem báo cáo, phục vụ không thu tiền. */
 const TAB_ROLES: Record<Tab, string[]> = {
@@ -48,6 +49,7 @@ const TAB_ROLES: Record<Tab, string[]> = {
   overview: ['ADMIN', 'MANAGER', 'CASHIER', 'WAITER'],
   shift: ['ADMIN', 'MANAGER', 'CASHIER'],
   reports: ['ADMIN', 'MANAGER', 'ACCOUNTANT'],
+  accounts: ['ADMIN', 'MANAGER'],
 };
 
 function Shell({ token, onLogout }: { token: string; onLogout: () => void }) {
@@ -55,6 +57,7 @@ function Shell({ token, onLogout }: { token: string; onLogout: () => void }) {
   const qc = useQueryClient();
   const toast = useToast();
   const [picked, setTab] = useState<Tab | null>(null);
+  const [changingPassword, setChangingPassword] = useState(false);
 
   const me = useQuery({ queryKey: ['me'], queryFn: () => api.get<Me>('/auth/me') });
   const role = me.data?.role ?? '';
@@ -102,6 +105,7 @@ function Shell({ token, onLogout }: { token: string; onLogout: () => void }) {
       ['overview', 'Tổng quan'],
       ['shift', 'Ca làm'],
       ['reports', 'Báo cáo'],
+      ['accounts', role === 'ADMIN' ? 'Nhân viên & thiết bị' : 'Thiết bị'],
     ] as [Tab, string][]
   ).filter(([t]) => TAB_ROLES[t].includes(role));
   const tab = picked && tabs.some(([t]) => t === picked) ? picked : tabs[0]?.[0];
@@ -124,7 +128,9 @@ function Shell({ token, onLogout }: { token: string; onLogout: () => void }) {
           </nav>
           <div className="flex items-center gap-3">
             <ConnectionDot connected={connected} />
-            <span className="hidden text-sm text-stone-600 sm:inline">{me.data?.name}</span>
+            <button className="hidden text-sm text-stone-600 underline-offset-2 hover:underline sm:inline" title="Đổi mật khẩu" onClick={() => setChangingPassword(true)}>
+              {me.data?.name}
+            </button>
             <Button size="sm" variant="ghost" onClick={onLogout}>
               Đăng xuất
             </Button>
@@ -136,7 +142,9 @@ function Shell({ token, onLogout }: { token: string; onLogout: () => void }) {
           {tab === 'overview' && <Overview />}
           {tab === 'shift' && <ShiftScreen />}
           {tab === 'reports' && <Reports />}
+          {tab === 'accounts' && <Accounts />}
         </main>
+        {changingPassword && <ChangePassword onClose={() => setChangingPassword(false)} />}
         {toast.node}
       </div>
     </Pos.Provider>

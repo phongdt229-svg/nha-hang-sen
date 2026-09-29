@@ -18,12 +18,20 @@ pnpm dev               # API :3000 + tablet :5173 + POS :5174 + KDS :5175
 
 | Màn hình | Địa chỉ | Đăng nhập |
 |---|---|---|
-| POS thu ngân / lễ tân | http://localhost:5174/pos/ | `quanly`, `thungan`, `phucvu`, `ketoan` / `sen123` |
+| POS thu ngân / lễ tân | http://localhost:5174/pos/ | `admin`, `quanly`, `thungan`, `phucvu`, `ketoan` / `sen123` |
 | Tablet gọi món | http://localhost:5173/tablet/ | Mã ghép 6 số tạo trên POS (bấm vào bàn → "Ghép tablet cho bàn này") |
 | KDS bếp | http://localhost:5175/kds/ | Mã ghép tạo trên POS (Cảnh báo bếp → "Ghép màn hình bếp") |
 | API docs (Swagger) | http://localhost:3000/docs | |
 
-Chạy toàn bộ bằng Docker như tại quán: `docker compose -f infra/docker-compose.yml up --build`, rồi nạp dữ liệu mẫu bằng `pnpm db:seed`, mở http://localhost:8088/pos/.
+Chạy toàn bộ bằng Docker như tại quán (API chế độ production **từ chối khởi động** nếu `JWT_SECRET` ngắn hoặc là giá trị mặc định):
+
+```bash
+JWT_SECRET=$(openssl rand -hex 32) docker compose -f infra/docker-compose.yml up -d --build
+docker compose -f infra/docker-compose.yml exec api npx prisma db seed   # dữ liệu mẫu, lần đầu
+# mở http://localhost:8088/pos/ ; thêm --profile monitoring để có Grafana :3001
+```
+
+Triển khai thật tại quán, vận hành, sự cố: [docs/van-hanh/](docs/van-hanh/) · hướng dẫn nhân viên: [docs/huong-dan/](docs/huong-dan/).
 
 **Luồng demo:** POS mở bàn → ghép tablet → khách gọi món → KDS tự ACK, tablet hiện "Bếp đã nhận" → bếp bấm Nấu/Xong → POS khóa bill → thu tiền mặt hoặc QR → bàn chuyển "Cần dọn" → Dọn xong.
 
@@ -34,7 +42,9 @@ pnpm test        # unit test tính tiền + máy trạng thái, e2e API trên da
 pnpm typecheck
 ```
 
-E2E (`apps/api/test`) phủ các kịch bản bắt buộc ở mục 15 thuộc phạm vi lõi: bấm xác nhận 5 lần → 1 order; KDS không ACK → retry 3 lần → FALLBACK → nhập tay; chuyển bàn; hai thu ngân khóa cùng bill; thanh toán/webhook trùng; in phiếu (hết giấy / mất kết nối → lệnh nằm trong hàng đợi, agent treo → giao lại, KDS fallback → in phiếu bếp); hóa đơn điện tử (tự phát hành, MST sai → sửa → phát hành lại, mất mạng → hàng đợi, tách bill → 2 hóa đơn, hoàn tiền → điều chỉnh giảm, doanh thu = tổng hóa đơn); WebSocket rớt → bắt kịp bằng `lastEventId`; phân quyền. Unit test `packages/pricing` gồm golden test bill đồ ăn 8% + bia 10% và đổi thuế suất qua 01/01/2027.
+E2E (`apps/api/test`) phủ các kịch bản bắt buộc ở mục 15 (bảng đối chiếu: [kiem-thu-truoc-pilot.md](docs/van-hanh/kiem-thu-truoc-pilot.md)): bấm xác nhận 5 lần → 1 order; KDS không ACK → retry 3 lần → FALLBACK → nhập tay; chuyển bàn; hai thu ngân khóa cùng bill; thanh toán/webhook trùng; in phiếu (hết giấy / mất kết nối → lệnh nằm trong hàng đợi, agent treo → giao lại, KDS fallback → in phiếu bếp); hóa đơn điện tử (tự phát hành, MST sai → sửa → phát hành lại, mất mạng → hàng đợi, tách bill → 2 hóa đơn, hoàn tiền → điều chỉnh giảm, doanh thu = tổng hóa đơn); giám sát/cảnh báo; khóa tài khoản, thu hồi thiết bị; WebSocket rớt → bắt kịp bằng `lastEventId`; phân quyền. Unit test `packages/pricing` gồm golden test bill đồ ăn 8% + bia 10% và đổi thuế suất qua 01/01/2027.
+
+Kiểm thử tải (k6, 40 bàn, KDS qua WebSocket): [infra/k6](infra/k6/README.md). Diễn tập sao lưu/khôi phục: [infra/backup](infra/backup/README.md).
 
 ## Cấu trúc
 
@@ -47,7 +57,7 @@ apps/print-agent Node.js chạy tại quán – nhận lệnh in qua LAN, gửi 
 packages/types  Kiểu dữ liệu, bảng chuyển trạng thái, danh sách sự kiện
 packages/pricing Tính tiền: số nguyên đồng, VAT nhiều mức theo ngày hiệu lực, giảm giá, tách bill, ngày kinh doanh
 packages/ui     API client, WebSocket có bắt kịp sự kiện, component dùng chung
-infra/          docker-compose, nginx, mosquitto
+infra/          docker-compose, nginx, mosquitto, sao lưu (backup/), giám sát (monitoring/), kiểm thử tải (k6/)
 ```
 
 ## Các cơ chế tin cậy đã làm (mục 6)
@@ -57,7 +67,7 @@ infra/          docker-compose, nginx, mosquitto
 - **ACK/retry bếp:** BullMQ kiểm tra ACK sau 3 giây, gửi lại tối đa 3 lần giãn cách tăng dần, hết lượt → FALLBACK + cảnh báo POS; thêm job quét định kỳ phòng khi Redis mất job.
 - **Máy trạng thái tập trung** (`packages/types/src/states.ts`), khóa dòng `SELECT … FOR UPDATE`, optimistic locking bằng cột `version` cho bill.
 - **Tablet mất mạng khi gửi:** giỏ bị khóa và tự gửi lại đúng khóa cũ khi có mạng, không mất và không trùng order.
-- **Audit log** cho hủy món, giảm giá, mở khóa bill, thu tiền, sửa menu.
+- **Audit log** cho hủy món, giảm giá, mở khóa bill, thu tiền, sửa menu, tài khoản nhân viên, thu hồi thiết bị.
 
 ## Tiến độ theo kế hoạch sprint
 
@@ -71,7 +81,7 @@ infra/          docker-compose, nginx, mosquitto
 | 3 | Print agent ESC/POS (`apps/print-agent`): hàng đợi lệnh in có idempotency, agent hỏi việc mỗi giây kèm trạng thái máy in, hết giấy / mất kết nối → lệnh nằm lại hàng đợi + POS báo lỗi, agent treo → hết hạn giữ lệnh thì giao lại; tự in phiếu bếp khi KDS FALLBACK; POS in phiếu thanh toán, in lại phiếu bếp, in thử, ghép agent | Xong + test (máy in TCP giả lập) |
 | 8 | AI tư vấn món (FastAPI) | Chưa làm |
 | 9–10, 14 | Kho nguyên liệu, định lượng, trừ kho, kiểm kê, food cost | Chưa làm |
-| 7 | Giám sát, sao lưu, k6, runbook | Chưa làm |
+| 7 | Giám sát: `/metrics` Prometheus + dashboard Grafana, `/health/ready`, watchdog cảnh báo Telegram/Zalo không gửi lặp; tự khởi động lại sau mất điện; sao lưu WAL liên tục + bản nền hằng đêm, diễn tập khôi phục đo RTO/RPO; k6 giờ cao điểm; quản lý nhân viên, đổi mật khẩu, thu hồi thiết bị; runbook, hướng dẫn triển khai + kiosk/MDM, hướng dẫn theo vai trò, checklist UAT | Xong + test. **Còn tại quán:** k6 trên server thật, diễn tập mất điện/mất WAN, UAT chạy song song |
 | — | i18n tablet, firmware mBot2/ESP32, dashboard/back-office | Chưa làm |
 
 **Hóa đơn điện tử:** `EINVOICE_PROVIDER=mock` dùng adapter giả lập (MST thử: `0100109106`, `0312345678`; MST khác bị từ chối). `EINVOICE_AUTO=false` để thu ngân bấm phát hành thủ công. Cần xác nhận với kế toán theo NĐ 254/2026 trước khi dùng thật (mục 12).

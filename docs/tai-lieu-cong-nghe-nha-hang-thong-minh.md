@@ -1,3 +1,5 @@
+# Nha Hang Sen — Technical Specification v0.5
+
 # Tài liệu công nghệ – Hệ thống nhà hàng thông minh tích hợp AI & Robot
 
 > Phiên bản 0.4 (bổ sung báo cáo doanh thu, quản lý nguyên liệu, xuất hóa đơn VAT, thách thức kỹ thuật, kế hoạch sprint) · Soạn từ tài liệu "Đề xuất giải pháp nhà hàng thông minh tích hợp AI & Robot (v2)" và bản demo "Nhà hàng Sen".
@@ -29,6 +31,104 @@
 **Nguyên tắc:** ưu tiên công nghệ phổ biến, dễ tuyển người tại Việt Nam, mã nguồn mở, không khóa vào một nhà cung cấp.
 
 ---
+
+
+## BỔ SUNG v0.5 — PRODUCT REQUIREMENTS & SCOPE
+
+> Phần này bổ sung lớp yêu cầu sản phẩm trước khi đi sâu vào thiết kế kỹ thuật. Nội dung kỹ thuật hiện có được giữ nguyên.
+
+### PR-01. Mục tiêu sản phẩm
+
+Nha Hang Sen là hệ thống quản lý nhà hàng theo hướng **local-first/offline-first**, kết nối các thành phần:
+
+- Tablet/Customer Ordering
+- POS/Cashier
+- KDS/Kitchen
+- Printer
+- Payment
+- E-invoice
+- Inventory
+- AI Food Assistant
+- Robot delivery
+- Monitoring & Operations
+
+Mục tiêu chính:
+
+1. Giảm thời gian từ gọi món → bếp nhận món.
+2. Không mất/nhân đôi order khi mạng chập chờn.
+3. Hỗ trợ vận hành nhà hàng ngay cả khi Internet tạm thời mất.
+4. Chuẩn hóa thanh toán, hóa đơn và đối soát.
+5. Có nền tảng để mở rộng AI, inventory và robot mà không phá vỡ core ordering.
+6. Có khả năng mở rộng từ một nhà hàng lên nhiều chi nhánh.
+
+### PR-02. Người dùng / vai trò
+
+| Vai trò | Trách nhiệm chính |
+|---|---|
+| Guest/Customer | Xem menu, chọn món, gửi order |
+| Waiter/Staff | Hỗ trợ order, chuyển bàn, xử lý nghiệp vụ tại bàn |
+| Cashier | Thanh toán, split/merge bill, hoàn/hủy theo quyền |
+| Kitchen | Nhận và xử lý món trên KDS |
+| Manager | Quản lý menu, ca, discount, báo cáo, phê duyệt |
+| Accountant | Đối soát thanh toán, hóa đơn điện tử |
+| Admin | User, device, system configuration, integration |
+| Technician | Monitoring, backup, recovery, troubleshooting |
+| Robot Operator | Theo dõi robot, xử lý lỗi giao món |
+
+### PR-03. User journey chính
+
+```text
+Khách đến nhà hàng
+      ↓
+Bàn / Dining Session
+      ↓
+Tablet / QR / POS
+      ↓
+Xem Menu
+      ↓
+Modifier / Add-on / Discount (nếu có)
+      ↓
+Cart local
+      ↓
+Create Order + Idempotency
+      ↓
+Outbox
+      ↓
+KDS
+      ↓
+Preparing → Ready
+      ↓
+Staff / Robot Delivery
+      ↓
+Bill
+      ↓
+Payment
+      ↓
+E-invoice (nếu yêu cầu)
+      ↓
+Close Table / Cleaning
+      ↓
+Report / Audit
+```
+
+### PR-04. MVP / Phase 2 / Phase 3
+
+| Giai đoạn | Phạm vi |
+|---|---|
+| MVP | Auth/RBAC, device, menu, table, dining session, cart, order, KDS, printer, bill, payment, shift, audit, monitoring, backup/restore, e-invoice sandbox |
+| Phase 2 | AI Food Assistant, inventory, recipe, food cost, promotion/voucher nâng cao |
+| Phase 3 | Robot orchestration, robot delivery, multi-branch, advanced analytics |
+| Non-goal MVP | Không bắt buộc AI phải tạo order; không phụ thuộc robot để hoàn thành luồng order; không triển khai multi-branch hoàn chỉnh nếu chưa cần |
+
+### PR-05. Tiêu chí thành công
+
+- Không mất hoặc duplicate order trong các kịch bản retry/network failure đã định nghĩa.
+- KDS nhận order trong SLA đã đặt.
+- Thanh toán và đối soát khớp.
+- Có thể phục hồi hệ thống từ backup.
+- Có thể vận hành với Internet bị gián đoạn theo offline policy.
+- Staff có thể hoàn thành luồng order → kitchen → payment mà không cần thao tác kỹ thuật.
+
 
 ## 2. Kiến trúc tổng thể
 
@@ -990,3 +1090,2893 @@ Thời gian chỉ là ước lượng ban đầu; điều chỉnh sau Sprint 1 d
 ---
 
 *Tài liệu này là bản đề xuất ban đầu; các lựa chọn công nghệ có thể điều chỉnh sau giai đoạn khảo sát.*
+
+
+---
+
+# BỔ SUNG v0.5 — CROSS-CUTTING REQUIREMENTS
+
+## 19. Security & Device Management
+
+### 19.1 Authentication
+
+Hệ thống cần định nghĩa rõ:
+
+- Access token expiry.
+- Refresh token lifecycle.
+- Logout/revoke token.
+- Password policy.
+- Password reset.
+- Account lock/rate limit khi đăng nhập sai nhiều lần.
+- Optional 2FA cho Manager/Admin.
+- Phân quyền theo role + permission.
+- Không lưu password dạng plaintext.
+
+### 19.2 Device Management
+
+Mỗi thiết bị cần có:
+
+```text
+device_id
+device_name
+device_type
+branch_id
+status
+pairing_code / credential
+last_seen_at
+app_version
+os_version
+ip_address
+revoked_at
+created_at
+updated_at
+```
+
+Device type:
+
+```text
+TABLET
+POS
+KDS
+PRINTER_AGENT
+ADMIN
+ROBOT_GATEWAY
+```
+
+Yêu cầu:
+
+- Device phải được pair trước khi sử dụng.
+- Admin có thể revoke device.
+- Device mất/đổi thiết bị không được tiếp tục truy cập bằng credential cũ.
+- Theo dõi last_seen và app version.
+- Có cơ chế cập nhật/release version cho tablet/KDS.
+
+---
+
+## 20. System Configuration
+
+Không hard-code các thông số vận hành quan trọng.
+
+### 20.1 Configuration domains
+
+```text
+BranchConfig
+PaymentConfig
+TaxConfig
+PrinterConfig
+KDSConfig
+RobotConfig
+AIConfig
+NotificationConfig
+SecurityConfig
+BackupConfig
+```
+
+### 20.2 Các cấu hình quan trọng
+
+Ví dụ:
+
+```text
+business_day_cutoff
+kds_ack_timeout
+kds_retry_count
+order_sync_retry_count
+printer_retry_count
+cash_variance_threshold
+offline_max_duration
+ai_monthly_budget
+ai_max_tokens_per_request
+payment_webhook_timeout
+invoice_retry_count
+```
+
+Mọi thay đổi configuration quan trọng phải được ghi vào `audit_log`.
+
+---
+
+## 21. Multi-Branch Readiness
+
+MVP có thể chạy một chi nhánh nhưng database nên sẵn sàng cho nhiều chi nhánh.
+
+Các entity nghiệp vụ chính nên có:
+
+```text
+branch_id
+```
+
+Tối thiểu:
+
+```text
+users
+devices
+tables
+dining_sessions
+orders
+order_items
+bills
+payments
+shifts
+printers
+kds_tickets
+robots
+warehouses
+inventory_transactions
+audit_logs
+```
+
+Không nên phụ thuộc vào một global singleton nếu có khả năng mở rộng thành chuỗi nhà hàng.
+
+---
+
+## 22. Customer Domain
+
+Bổ sung customer model để phục vụ CRM và AI về sau.
+
+### 22.1 Core entities
+
+```text
+customers
+customer_sessions
+customer_preferences
+customer_orders
+customer_points
+customer_vouchers
+```
+
+Customer không bắt buộc phải đăng ký để order tại bàn.
+
+Có thể liên kết:
+
+```text
+customer
+   ↓
+dining_session
+   ↓
+orders
+   ↓
+bills
+```
+
+Dữ liệu khách hàng cần tuân thủ chính sách privacy/retention.
+
+---
+
+## 23. Menu Modifier / Add-on
+
+Menu item cần hỗ trợ tùy chọn.
+
+Ví dụ:
+
+```text
+modifier_groups
+modifiers
+item_modifier_groups
+```
+
+Các loại:
+
+```text
+SIZE
+TOPPING
+COOKING_LEVEL
+SPICE_LEVEL
+ADD_ON
+REMOVE_INGREDIENT
+```
+
+Ví dụ:
+
+```text
+Burger
+ ├─ Size: S / M / L
+ ├─ Cheese: +10k
+ ├─ Bacon: +20k
+ └─ Remove onion
+```
+
+Order item phải snapshot modifier tại thời điểm đặt món để không bị thay đổi theo menu hiện tại.
+
+---
+
+## 24. Promotion / Discount / Voucher
+
+Bổ sung domain:
+
+```text
+promotions
+promotion_rules
+vouchers
+voucher_redemptions
+discounts
+```
+
+Có thể hỗ trợ:
+
+- Percentage discount.
+- Fixed amount.
+- Buy X Get Y.
+- Combo.
+- Happy hour.
+- Member discount.
+- Voucher.
+- Discount theo món/category.
+- Discount theo bill.
+
+Cần quy định rõ:
+
+- Discount tính trước hay sau VAT.
+- Discount phân bổ vào order item như thế nào.
+- Có cộng dồn nhiều promotion hay không.
+- Ai được phép override discount.
+- Discount override phải có approval/audit.
+
+---
+
+## 25. Menu / Price / Recipe Versioning
+
+Không chỉ lưu giá hiện tại.
+
+Các nghiệp vụ cần giữ historical snapshot:
+
+```text
+menu_versions
+price_versions
+recipe_versions
+tax_versions
+```
+
+Order item phải lưu tối thiểu:
+
+```text
+item_id
+item_name_snapshot
+unit_price
+tax_rate
+discount_amount
+modifier_snapshot
+```
+
+Mục tiêu:
+
+> Order lịch sử phải luôn tính lại/hiển thị đúng theo dữ liệu tại thời điểm order, không phụ thuộc menu hiện tại.
+
+---
+
+## 26. Network Architecture
+
+### 26.1 Restaurant LAN
+
+Khuyến nghị phân vùng:
+
+```text
+VLAN / Network
+├── POS / Tablet
+├── KDS / Printer
+├── Server
+├── Robot
+└── Guest Wi-Fi
+```
+
+Guest Wi-Fi không được truy cập trực tiếp:
+
+```text
+PostgreSQL
+Redis
+MQTT
+Admin services
+```
+
+### 26.2 Infrastructure rules
+
+- PostgreSQL không public Internet.
+- Redis không public Internet.
+- MQTT broker không public nếu không cần.
+- Admin access ưu tiên VPN.
+- Server có static IP/DHCP reservation.
+- Firewall chỉ mở port cần thiết.
+- Có health check giữa API, DB, Redis, MQTT và print agent.
+
+---
+
+## 27. API / Webhook Security
+
+API cần bổ sung:
+
+- Rate limiting.
+- Request size limit.
+- Input validation.
+- CORS policy.
+- CSRF protection cho các flow browser phù hợp.
+- SQL injection protection.
+- File upload validation.
+- JWT validation.
+- Permission validation.
+- Idempotency-Key cho các mutation có thể retry.
+
+Webhook:
+
+```text
+signature validation
+timestamp validation
+replay protection
+idempotency
+optional IP allowlist
+raw payload storage
+processing status
+retry count
+```
+
+Không xử lý webhook chỉ dựa vào IP hoặc URL secret.
+
+---
+
+## 28. Audit Log
+
+Audit log nên có cấu trúc:
+
+```text
+audit_logs
+----------------
+id
+branch_id
+user_id
+device_id
+action
+entity_type
+entity_id
+before_data
+after_data
+reason
+ip_address
+user_agent
+created_at
+```
+
+Các hành động cần audit:
+
+- Login/logout.
+- Role/permission change.
+- Device pair/revoke.
+- Menu/price change.
+- Discount/override.
+- Cancel order/item.
+- Payment adjustment.
+- Cash shift close.
+- E-invoice reissue/cancel.
+- Configuration change.
+- Inventory adjustment.
+- Robot manual intervention.
+
+Audit log không được cho phép user thông thường xóa/sửa.
+
+---
+
+## 29. Notification Center
+
+Bổ sung:
+
+```text
+notifications
+notification_recipients
+notification_templates
+notification_deliveries
+```
+
+Các event:
+
+```text
+KDS_ERROR
+ROBOT_ERROR
+LOW_STOCK
+PAYMENT_ERROR
+EINVOICE_ERROR
+SERVER_ERROR
+CASH_VARIANCE
+BACKUP_FAILED
+PRINTER_ERROR
+DEVICE_OFFLINE
+```
+
+Channel:
+
+```text
+IN_APP
+EMAIL
+ZALO
+TELEGRAM
+```
+
+Cần có severity:
+
+```text
+INFO
+WARNING
+ERROR
+CRITICAL
+```
+
+---
+
+## 30. AI Safety / Guardrails
+
+AI Food Assistant không được truy cập database tùy ý.
+
+Luồng:
+
+```text
+User
+ ↓
+AI
+ ↓
+Intent detection
+ ↓
+Allowed tool validation
+ ↓
+Business-rule validation
+ ↓
+DB validation
+ ↓
+Response
+```
+
+AI chỉ được phép thực hiện các tool được whitelist.
+
+Ví dụ:
+
+```text
+search_menu
+check_item_availability
+get_price
+get_allergen_info
+suggest_combo
+get_order_status
+```
+
+AI không được tự ý:
+
+```text
+change_price
+apply_unapproved_discount
+delete_order
+refund_payment
+modify_inventory
+create_einvoice
+change_system_config
+```
+
+Nếu AI có quyền thực hiện action trong tương lai, action phải đi qua permission + business rule + audit.
+
+### 30.1 AI observability
+
+Lưu:
+
+```text
+ai_conversations
+ai_messages
+ai_tool_calls
+ai_usage
+ai_errors
+```
+
+Theo dõi:
+
+- Token usage.
+- Cost.
+- Latency.
+- Error rate.
+- Fallback rate.
+- Tool failure.
+- User feedback.
+
+---
+
+## 31. Privacy / Personal Data
+
+Cần định nghĩa:
+
+### Data classification
+
+```text
+PUBLIC
+INTERNAL
+CONFIDENTIAL
+PERSONAL
+SENSITIVE
+```
+
+Xác định:
+
+- Dữ liệu khách hàng nào được lưu.
+- Thời gian retention.
+- Ai được xem.
+- Ai được export.
+- Khi nào được xóa/anonymize.
+- Dữ liệu nào được gửi tới AI/LLM provider.
+- Dữ liệu nào phải mask/encrypt.
+
+Không gửi thông tin không cần thiết của khách hàng vào prompt AI.
+
+---
+
+## 32. Backup / Disaster Recovery
+
+Không chỉ kiểm tra backup thành công; phải kiểm tra **restore thành công**.
+
+### 32.1 Failure scenarios
+
+```text
+Server failure
+SSD failure
+PostgreSQL corruption
+Power loss
+Network loss
+Redis failure
+MQTT failure
+Printer failure
+Ransomware / accidental deletion
+```
+
+### 32.2 Backup layers
+
+```text
+PostgreSQL backup
++
+WAL / continuous recovery
++
+Local backup
++
+Offsite/cloud backup
+```
+
+### 32.3 Recovery test
+
+Định kỳ thực hiện:
+
+```text
+Create backup
+↓
+Destroy test environment
+↓
+Restore database
+↓
+Restore application
+↓
+Verify orders/bills/payments
+↓
+Verify consistency
+```
+
+Ghi nhận:
+
+```text
+backup_time
+restore_time
+RTO_actual
+RPO_actual
+restore_status
+```
+
+---
+
+## 33. Observability & Operations Dashboard
+
+### 33.1 Technical metrics
+
+```text
+CPU
+RAM
+Disk
+PostgreSQL connections
+PostgreSQL latency
+Redis health
+MQTT connections
+API p50/p95/p99
+WebSocket connections
+Queue depth
+Failed jobs
+Printer errors
+Device offline count
+```
+
+### 33.2 Business metrics
+
+```text
+orders/hour
+KDS ACK latency
+KDS fallback count
+payment success/failure
+pending payments
+e-invoice pending/error
+printer failure
+robot delivery success/failure
+AI latency/cost
+stock variance
+revenue
+average order value
+table duration
+top dishes
+food cost
+cash variance
+```
+
+---
+
+## 34. Integration Management
+
+Các integration bên ngoài nên có abstraction riêng:
+
+```text
+PaymentProvider
+EInvoiceProvider
+AccountingProvider
+NotificationProvider
+LLMProvider
+RobotProvider
+```
+
+Mỗi integration cần:
+
+```text
+provider
+environment
+credentials/reference
+status
+timeout
+retry_policy
+last_success_at
+last_error_at
+```
+
+Không để business logic phụ thuộc trực tiếp vào một vendor.
+
+---
+
+## 35. Production Pilot Acceptance Criteria
+
+Trước khi production pilot, cần checklist:
+
+### Reliability
+
+- [ ] Không duplicate order trong retry test.
+- [ ] Không mất order trong network failure test.
+- [ ] KDS fallback hoạt động.
+- [ ] Printer fallback hoạt động.
+- [ ] Offline policy được test thực tế.
+
+### Payment
+
+- [ ] Payment reconciliation đạt 100% trong test dataset.
+- [ ] Webhook duplicate không tạo duplicate payment.
+- [ ] Pending payment có cơ chế recovery.
+
+### E-invoice
+
+- [ ] Sandbox issue thành công.
+- [ ] Retry/reissue hoạt động.
+- [ ] Không duplicate invoice do retry.
+- [ ] Đối soát invoice/payment.
+
+### Backup
+
+- [ ] Backup thành công.
+- [ ] Restore thành công.
+- [ ] RTO/RPO thực tế được ghi nhận.
+
+### Operations
+
+- [ ] Staff được training.
+- [ ] Manager được training.
+- [ ] Incident runbook có sẵn.
+- [ ] Rollback plan có sẵn.
+- [ ] Monitoring/alert hoạt động.
+
+### Pilot duration
+
+Khuyến nghị pilot liên tục ít nhất 7 ngày trước khi kết luận hệ thống ổn định.
+
+---
+
+## 36. Roadmap Refinement
+
+Roadmap hiện tại có nhiều dependency lớn giữa MVP, AI, inventory và robot. Để giảm rủi ro, nên tách milestone theo product capability:
+
+```text
+Milestone 1
+Core Ordering MVP
+        ↓
+Milestone 2
+Restaurant Pilot
+        ↓
+Milestone 3
+AI Pilot
+        ↓
+Milestone 4
+Inventory / Food Cost
+        ↓
+Milestone 5
+Robot Demo
+        ↓
+Milestone 6
+Robot Production
+        ↓
+Milestone 7
+Multi-Branch / Scale
+```
+
+Robot integration nên được coi là một track độc lập vì phụ thuộc phần cứng, SDK/API, network và hành vi thực tế của robot.
+
+---
+
+
+---
+
+# BỔ SUNG v0.5 — ROBOT DELIVERY / GIAO MÓN BẰNG ROBOT
+
+> Đây là module nghiệp vụ quan trọng của Nha Hang Sen. Robot không chỉ là một integration device mà là một **Delivery Execution System** nằm sau KDS/Order và trước bước hoàn tất phục vụ món.
+
+## RD-01. Mục tiêu
+
+Hệ thống phải hỗ trợ luồng:
+
+```text
+Customer Order
+      ↓
+Kitchen / KDS
+      ↓
+Food Ready
+      ↓
+Create Delivery Task
+      ↓
+Assign Robot
+      ↓
+Robot nhận nhiệm vụ
+      ↓
+Robot di chuyển tới bàn
+      ↓
+Robot tới điểm giao
+      ↓
+Thông báo khách nhận món
+      ↓
+Xác nhận giao món
+      ↓
+Robot quay về Home / Station
+      ↓
+Task Completed
+```
+
+Mục tiêu:
+
+- Tự động giao món từ khu vực bếp tới bàn.
+- Biết món nào đang được giao cho bàn nào.
+- Theo dõi trạng thái robot theo thời gian thực.
+- Tránh giao nhầm bàn.
+- Có cơ chế retry/reassign khi robot lỗi.
+- Nhân viên có thể takeover bất cứ lúc nào.
+- Không để robot là điểm nghẽn khiến order bị treo.
+- Có đầy đủ log để truy vết một delivery task.
+
+---
+
+## RD-02. Định nghĩa Delivery Task
+
+Mỗi lần robot giao món phải tạo một `delivery_task`.
+
+Ví dụ:
+
+```text
+delivery_task
+-------------------------
+id
+branch_id
+order_id
+dining_session_id
+table_id
+kitchen_ticket_id
+robot_id
+status
+priority
+pickup_location
+delivery_location
+assigned_at
+started_at
+arrived_at
+delivered_at
+completed_at
+failed_at
+failure_reason
+retry_count
+created_at
+updated_at
+```
+
+### Delivery status
+
+```text
+PENDING
+ASSIGNING
+ASSIGNED
+ROBOT_ACCEPTED
+GOING_TO_PICKUP
+ARRIVED_PICKUP
+LOADING
+GOING_TO_TABLE
+ARRIVED_TABLE
+WAITING_CUSTOMER
+DELIVERED
+RETURNING
+COMPLETED
+FAILED
+CANCELLED
+MANUAL_TAKEOVER
+```
+
+Không nên dùng một field `status` của order để biểu diễn trạng thái delivery.
+
+Order và Delivery Task là hai state machine khác nhau.
+
+---
+
+## RD-03. Khi nào tạo Delivery Task?
+
+Không tạo task ngay khi khách order.
+
+Luồng đề xuất:
+
+```text
+Order Created
+      ↓
+KDS Received
+      ↓
+Kitchen Preparing
+      ↓
+Kitchen Ready
+      ↓
+KDS mark READY
+      ↓
+System tạo Delivery Task
+```
+
+Điều này giúp tránh trường hợp robot đến bàn trong khi món chưa hoàn thành.
+
+### Rule
+
+Chỉ những món/order có:
+
+```text
+delivery_mode = ROBOT
+```
+
+mới được tạo robot delivery task.
+
+Các mode khác:
+
+```text
+STAFF
+ROBOT
+CUSTOMER_PICKUP
+```
+
+---
+
+## RD-04. Delivery Batch
+
+Một bàn có thể có nhiều món được hoàn thành ở các thời điểm khác nhau.
+
+Ví dụ:
+
+```text
+Order #1001
+ ├── Phở        READY 10:05
+ ├── Cà phê     READY 10:06
+ └── Bánh       PREPARING
+```
+
+Hệ thống có thể tạo:
+
+```text
+Delivery Task #5001
+ └── Phở
+ └── Cà phê
+```
+
+sau đó:
+
+```text
+Delivery Task #5002
+ └── Bánh
+```
+
+Hoặc gom thành một task duy nhất nếu restaurant policy yêu cầu:
+
+```text
+DELIVERY_BATCH_POLICY
+
+IMMEDIATE
+BATCH_BY_ORDER
+BATCH_BY_TABLE
+WAIT_X_SECONDS
+```
+
+Cấu hình này phải nằm trong `System Configuration`.
+
+---
+
+## RD-05. Pickup Location
+
+Robot phải biết chính xác nơi lấy món.
+
+Không hard-code:
+
+```text
+Kitchen = (10, 20)
+```
+
+Nên có:
+
+```text
+locations
+----------------
+id
+branch_id
+type
+name
+x
+y
+floor
+zone
+metadata
+status
+```
+
+Location type:
+
+```text
+KITCHEN
+PASS
+PICKUP_POINT
+DELIVERY_POINT
+TABLE
+HOME
+CHARGING_STATION
+WAITING_POINT
+```
+
+Ví dụ:
+
+```text
+Kitchen Pass
+    ↓
+Robot Pickup Point A
+    ↓
+Table A01
+```
+
+---
+
+## RD-06. Delivery Point tại bàn
+
+Không nên chỉ lưu:
+
+```text
+table_id = 12
+```
+
+Robot cần có điểm giao cụ thể:
+
+```text
+delivery_point_id
+location_id
+x
+y
+floor
+zone
+```
+
+Ví dụ:
+
+```text
+Table A01
+ └── Delivery Point A01
+      ├── x
+      ├── y
+      └── orientation
+```
+
+Nếu nhà hàng thay đổi layout, có thể cập nhật map/location mà không thay đổi order.
+
+---
+
+## RD-07. Robot Registry
+
+Mỗi robot cần được quản lý như một device:
+
+```text
+robots
+-------------------------
+id
+branch_id
+robot_code
+name
+vendor
+model
+serial_number
+status
+battery_level
+current_location
+current_task_id
+last_seen_at
+firmware_version
+api_version
+capabilities
+created_at
+updated_at
+```
+
+Robot status:
+
+```text
+OFFLINE
+IDLE
+ASSIGNED
+BUSY
+CHARGING
+ERROR
+MAINTENANCE
+MANUAL
+```
+
+---
+
+## RD-08. Robot Capability
+
+Không giả định mọi robot đều có cùng khả năng.
+
+Ví dụ:
+
+```json
+{
+  "max_load": 20,
+  "shelf_count": 4,
+  "supports_navigation": true,
+  "supports_door": false,
+  "supports_elevator": false,
+  "supports_voice": true,
+  "supports_customer_confirmation": true
+}
+```
+
+Hệ thống scheduler phải kiểm tra capability trước khi assign task.
+
+---
+
+## RD-09. Robot Assignment
+
+Khi `Delivery Task = PENDING`, Scheduler tìm robot phù hợp.
+
+Điều kiện:
+
+```text
+robot.status = IDLE
+AND
+robot.online = true
+AND
+battery_level >= minimum_battery
+AND
+capability phù hợp
+AND
+robot không có task active
+```
+
+Nếu có nhiều robot:
+
+```text
+Candidate Robots
+      ↓
+Filter
+      ↓
+Score
+      ↓
+Select
+      ↓
+Assign
+```
+
+Có thể ưu tiên:
+
+1. Robot gần pickup point.
+2. Battery đủ.
+3. Robot đang ở cùng zone.
+4. Robot có capability phù hợp.
+5. Robot có ít task đang chờ.
+
+Không cần tối ưu thuật toán phức tạp ở MVP; rule-based scheduler là đủ.
+
+---
+
+## RD-10. Robot Command API
+
+Không để Order Service gọi trực tiếp API của từng hãng robot.
+
+Nên có abstraction:
+
+```text
+RobotService
+      ↓
+RobotAdapter
+      ↓
+Vendor SDK / REST / MQTT / WebSocket
+```
+
+Interface đề xuất:
+
+```text
+getStatus()
+getLocation()
+assignTask()
+navigateTo()
+pause()
+resume()
+cancelTask()
+returnHome()
+dock()
+getBattery()
+```
+
+Ví dụ:
+
+```text
+RobotProvider
+ ├── MbotAdapter
+ ├── OrionStarAdapter
+ └── LuckiBotAdapter
+```
+
+Core system không phụ thuộc vendor.
+
+---
+
+## RD-11. Robot Task State Machine
+
+```text
+PENDING
+   ↓
+ASSIGNING
+   ↓
+ASSIGNED
+   ↓
+ROBOT_ACCEPTED
+   ↓
+GOING_TO_PICKUP
+   ↓
+ARRIVED_PICKUP
+   ↓
+LOADING
+   ↓
+GOING_TO_TABLE
+   ↓
+ARRIVED_TABLE
+   ↓
+WAITING_CUSTOMER
+   ↓
+DELIVERED
+   ↓
+RETURNING
+   ↓
+COMPLETED
+```
+
+Các nhánh lỗi:
+
+```text
+                 ┌── FAILED
+                 │
+GOING_TO_TABLE ──┼── MANUAL_TAKEOVER
+                 │
+                 └── RETRY
+```
+
+---
+
+## RD-12. Loading món lên robot
+
+Cần xác định cách hệ thống biết món đã được đặt lên robot.
+
+Có thể có 3 mức:
+
+### MVP
+
+Staff xác nhận:
+
+```text
+[Đặt món lên robot]
+        ↓
+[Confirm Pickup]
+```
+
+### Phase 2
+
+Robot có sensor:
+
+```text
+Weight / Shelf Sensor
+        ↓
+Robot reports loaded
+```
+
+### Phase 3
+
+Computer vision / RFID / tray identification nếu cần.
+
+MVP không nên phụ thuộc computer vision.
+
+---
+
+## RD-13. Xác nhận đúng bàn
+
+Đây là chức năng cần làm rõ nhất để tránh giao nhầm món.
+
+Khi robot tới bàn:
+
+```text
+Robot → Table
+```
+
+Hệ thống cần xác nhận:
+
+```text
+robot.table_target == delivery_task.table
+```
+
+Có thể sử dụng:
+
+- Tablet tại bàn.
+- QR code tại bàn.
+- Mã bàn hiển thị trên robot.
+- Voice notification.
+- Staff confirmation.
+- Customer confirmation trên tablet.
+
+### Recommended MVP
+
+Robot tới bàn → hiển thị:
+
+```text
+Bàn A01
+Order #1001
+3 món
+```
+
+Tablet bàn nhận event:
+
+```text
+ROBOT_ARRIVED
+```
+
+Khách bấm:
+
+```text
+[Nhận món]
+```
+
+Sau đó:
+
+```text
+CUSTOMER_CONFIRMED
+```
+
+Robot chuyển sang:
+
+```text
+RETURNING
+```
+
+---
+
+## RD-14. Không có khách tại bàn
+
+Khi robot tới nhưng khách chưa xác nhận:
+
+```text
+ARRIVED_TABLE
+      ↓
+WAITING_CUSTOMER
+```
+
+Có timeout:
+
+```text
+customer_wait_timeout = 60 seconds
+```
+
+Sau timeout:
+
+```text
+WAITING_CUSTOMER
+      ↓
+Notify Staff
+```
+
+Staff có thể:
+
+```text
+[Confirm Delivery]
+[Takeover]
+[Return Robot]
+```
+
+Không nên tự động coi là delivered chỉ vì robot tới bàn.
+
+---
+
+## RD-15. Delivery Confirmation
+
+Delivery cần có event riêng:
+
+```text
+delivery_events
+-------------------------
+id
+delivery_task_id
+event_type
+robot_id
+location
+payload
+created_at
+```
+
+Event examples:
+
+```text
+TASK_CREATED
+ROBOT_ASSIGNED
+ROBOT_ACCEPTED
+ARRIVED_PICKUP
+ITEMS_LOADED
+DEPARTED_PICKUP
+ARRIVED_TABLE
+CUSTOMER_NOTIFIED
+CUSTOMER_CONFIRMED
+STAFF_CONFIRMED
+DELIVERED
+RETURN_STARTED
+RETURNED_HOME
+TASK_COMPLETED
+TASK_FAILED
+MANUAL_TAKEOVER
+```
+
+---
+
+## RD-16. Robot Failure Handling
+
+### Case 1 — Robot mất kết nối
+
+```text
+Robot heartbeat timeout
+        ↓
+Robot OFFLINE
+        ↓
+Task = ROBOT_ERROR
+        ↓
+Notify Staff
+        ↓
+Pause task
+```
+
+Staff quyết định:
+
+```text
+Retry
+Reassign another robot
+Manual delivery
+Cancel task
+```
+
+### Case 2 — Robot hết pin
+
+```text
+battery < minimum
+        ↓
+Không nhận task mới
+```
+
+Nếu đang giao:
+
+```text
+battery critical
+        ↓
+Stop / Return Home
+        ↓
+Manual Takeover
+```
+
+### Case 3 — Robot bị obstacle
+
+Robot báo:
+
+```text
+OBSTACLE
+```
+
+Hệ thống:
+
+```text
+Retry navigation
+      ↓
+Still blocked
+      ↓
+Notify Staff
+      ↓
+Manual Takeover
+```
+
+---
+
+## RD-17. Manual Takeover
+
+Nhân viên phải có quyền takeover:
+
+```text
+[Take Delivery]
+```
+
+Sau khi takeover:
+
+```text
+delivery_task.status = MANUAL_TAKEOVER
+delivery_task.delivery_mode = STAFF
+```
+
+Robot có thể:
+
+```text
+returnHome()
+```
+
+Quan trọng:
+
+> Robot lỗi không được làm order bị stuck ở trạng thái “Ready” vô thời hạn.
+
+---
+
+## RD-18. Retry Policy
+
+Không retry vô hạn.
+
+Ví dụ:
+
+```text
+max_robot_assignment_retry = 3
+max_navigation_retry = 2
+max_api_retry = 3
+```
+
+Sau khi vượt ngưỡng:
+
+```text
+FAILED
+```
+
+và tạo notification:
+
+```text
+ROBOT_ERROR
+```
+
+---
+
+## RD-19. Robot Queue / Scheduler
+
+Khi có nhiều delivery:
+
+```text
+Task 100
+Task 101
+Task 102
+Task 103
+```
+
+Scheduler cần quản lý queue.
+
+Priority:
+
+```text
+URGENT
+HIGH
+NORMAL
+LOW
+```
+
+Ví dụ:
+
+```text
+Normal:
+Order ready time
+
+High:
+Food temperature-sensitive
+
+Urgent:
+Special order
+```
+
+MVP có thể chỉ dùng:
+
+```text
+FIFO + nearest robot
+```
+
+---
+
+## RD-20. Robot + KDS Integration
+
+KDS cần thêm action:
+
+```text
+READY
+READY_FOR_ROBOT
+SEND_TO_ROBOT
+```
+
+Ví dụ:
+
+```text
+KDS
+ └── Order #1001
+      ├── Phở       READY
+      ├── Cà phê    READY
+      └── Bánh      PREPARING
+
+[Send ready items to robot]
+```
+
+Khi staff xác nhận:
+
+```text
+CREATE DELIVERY TASK
+```
+
+---
+
+## RD-21. Robot Delivery UI
+
+### POS / Manager
+
+Hiển thị:
+
+```text
+Robot Dashboard
+
+Robot R01
+● BUSY
+Battery: 78%
+Task: #5001
+Location: Zone A
+
+Robot R02
+● IDLE
+Battery: 92%
+```
+
+### KDS
+
+```text
+Order #1001
+READY
+
+Delivery:
+🤖 R01 → Table A01
+Status: Going to table
+```
+
+### Tablet bàn
+
+```text
+🤖 Robot đang mang món đến
+
+Bàn A01
+Order #1001
+
+Robot đã tới.
+
+[ NHẬN MÓN ]
+```
+
+### Manager
+
+Có thể:
+
+```text
+Pause Robot
+Resume Robot
+Return Home
+Cancel Task
+Manual Takeover
+Reassign
+```
+
+---
+
+## RD-22. Robot Monitoring
+
+Metrics:
+
+```text
+robot_online_count
+robot_offline_count
+robot_battery_low
+delivery_tasks_pending
+delivery_tasks_active
+delivery_tasks_completed
+delivery_tasks_failed
+delivery_average_time
+delivery_failure_rate
+manual_takeover_count
+navigation_retry_count
+```
+
+Dashboard:
+
+```text
+Robot
+├── Online
+├── Busy
+├── Charging
+├── Error
+└── Offline
+
+Delivery
+├── Pending
+├── In Progress
+├── Waiting Customer
+├── Completed
+└── Failed
+```
+
+---
+
+## RD-23. Robot Database Module
+
+Bổ sung DB:
+
+```text
+robots
+robot_capabilities
+robot_locations
+robot_tasks
+robot_task_items
+robot_events
+robot_telemetry
+robot_errors
+robot_commands
+```
+
+Quan hệ:
+
+```text
+order
+  ↓
+delivery_task
+  ↓
+robot_task
+  ↓
+robot
+  ↓
+robot_events
+```
+
+Một `delivery_task` có thể chứa nhiều `order_items`.
+
+---
+
+## RD-24. Robot API Events
+
+Core system nên phát event:
+
+```text
+delivery.task.created
+delivery.task.assigned
+delivery.task.ready_for_pickup
+delivery.task.picked_up
+delivery.robot.arrived
+delivery.customer.confirmed
+delivery.task.completed
+delivery.task.failed
+delivery.task.manual_takeover
+```
+
+Robot Gateway nhận command:
+
+```text
+robot.assign
+robot.navigate
+robot.pause
+robot.resume
+robot.cancel
+robot.return_home
+```
+
+Robot Gateway gửi event:
+
+```text
+robot.online
+robot.offline
+robot.location_changed
+robot.battery_changed
+robot.arrived
+robot.obstacle
+robot.error
+robot.task_completed
+```
+
+---
+
+## RD-25. Robot Gateway
+
+Nên có service riêng:
+
+```text
+                    ┌── Robot Vendor A
+Core API
+   ↓                ├── Robot Vendor B
+Robot Gateway ──────┤
+                    └── Robot Vendor C
+```
+
+Robot Gateway chịu trách nhiệm:
+
+- Vendor authentication.
+- Protocol conversion.
+- Heartbeat.
+- Command retry.
+- Robot event normalization.
+- Vendor-specific error mapping.
+- Connection management.
+
+Core API chỉ biết:
+
+```text
+assignTask()
+cancelTask()
+getStatus()
+getLocation()
+```
+
+Không biết robot đang dùng REST, MQTT, WebSocket hay SDK riêng.
+
+---
+
+## RD-26. Robot Delivery Sequence
+
+### Happy path
+
+```text
+KDS
+ │
+ │ READY
+ ▼
+Delivery Service
+ │
+ │ CREATE TASK
+ ▼
+Scheduler
+ │
+ │ ASSIGN R01
+ ▼
+Robot Gateway
+ │
+ │ ASSIGN
+ ▼
+Robot R01
+ │
+ │ ACCEPTED
+ ▼
+Pickup Point
+ │
+ │ ITEMS LOADED
+ ▼
+Robot R01
+ │
+ │ NAVIGATE
+ ▼
+Table A01
+ │
+ │ ARRIVED
+ ▼
+Tablet A01
+ │
+ │ CUSTOMER CONFIRMED
+ ▼
+Delivery Service
+ │
+ │ DELIVERED
+ ▼
+Robot R01
+ │
+ │ RETURN HOME
+ ▼
+COMPLETED
+```
+
+---
+
+## RD-27. Robot Failure Sequence
+
+```text
+KDS READY
+   ↓
+Delivery Task
+   ↓
+Robot Assigned
+   ↓
+Robot mất kết nối
+   ↓
+Heartbeat timeout
+   ↓
+ROBOT_ERROR
+   ↓
+Notify Manager/Staff
+   ↓
+┌────────────────────────────┐
+│ Retry                      │
+│ Reassign Robot             │
+│ Manual Takeover            │
+└────────────────────────────┘
+```
+
+Không được để:
+
+```text
+Order = READY
+Delivery = ??? forever
+```
+
+Mọi task phải có terminal state:
+
+```text
+COMPLETED
+FAILED
+CANCELLED
+MANUAL_TAKEOVER
+```
+
+---
+
+## RD-28. MVP Robot Scope
+
+Để tránh MVP quá phức tạp, robot MVP chỉ cần:
+
+### Bắt buộc
+
+- 1 loại robot.
+- 1 branch.
+- 1 floor.
+- Predefined map.
+- Predefined table locations.
+- Robot status.
+- Battery.
+- Assign task.
+- Navigate pickup.
+- Staff xác nhận load.
+- Navigate table.
+- Customer/staff confirmation.
+- Return home.
+- Retry.
+- Manual takeover.
+- Audit/event log.
+
+### Chưa cần MVP
+
+- Dynamic mapping.
+- Computer vision.
+- Autonomous elevator.
+- Multi-floor.
+- Multi-robot optimization.
+- AI route planning.
+- Automatic loading recognition.
+- Facial recognition.
+- Complex fleet optimization.
+
+---
+
+## RD-29. Robot Pilot Acceptance Criteria
+
+Robot chỉ được đưa vào pilot khi đạt:
+
+- [ ] Robot online/offline detection hoạt động.
+- [ ] Robot nhận task chính xác.
+- [ ] Robot đến đúng pickup point.
+- [ ] Robot đến đúng delivery point.
+- [ ] Không giao nhầm bàn trong test scenario.
+- [ ] Customer/staff confirmation hoạt động.
+- [ ] Robot tự return home.
+- [ ] Robot lỗi có notification.
+- [ ] Có retry giới hạn.
+- [ ] Có reassign.
+- [ ] Có manual takeover.
+- [ ] Không làm order bị stuck.
+- [ ] Có đầy đủ delivery events.
+- [ ] Có dashboard trạng thái robot.
+- [ ] Có emergency stop / manual safety procedure theo khả năng của robot thực tế.
+- [ ] Staff được đào tạo xử lý robot failure.
+
+### KPI pilot đề xuất
+
+Không đặt KPI cứng trước khi có dữ liệu thực tế. Trong pilot nên đo:
+
+```text
+delivery_success_rate
+average_delivery_time
+p95_delivery_time
+wrong_table_count
+manual_takeover_rate
+robot_failure_rate
+navigation_retry_rate
+customer_confirmation_time
+battery_consumption_per_delivery
+```
+
+Sau pilot mới xác định SLA/KPI production phù hợp.
+
+---
+
+## RD-30. Các vấn đề cần xác nhận với nhà cung cấp robot
+
+Trước khi chọn robot phải lấy được:
+
+1. Robot có API/SDK chính thức không?
+2. API chạy local LAN hay cloud?
+3. Có REST/MQTT/WebSocket/SDK?
+4. Có authentication?
+5. Có webhook/event?
+6. Có lấy được current location không?
+7. Có lấy battery không?
+8. Có command navigate-to-location không?
+9. Có pause/resume/cancel không?
+10. Có return-home không?
+11. Có obstacle/error event không?
+12. Có map API không?
+13. Có tạo waypoint không?
+14. Có nhiều robot cùng chạy không?
+15. Có collision avoidance không?
+16. Có hỗ trợ nhiều tầng không?
+17. Có elevator integration không?
+18. Có giới hạn tải trọng?
+19. Có sensor nhận biết đồ trên khay?
+20. Khi mất mạng robot sẽ làm gì?
+21. Khi mất điện robot xử lý thế nào?
+22. Có emergency stop?
+23. Có sandbox/simulator để develop không?
+24. Có SDK cho Linux/Windows/Android?
+25. Có tài liệu API và test environment không?
+
+> Đây là các thông tin bắt buộc phải có trước khi chốt kiến trúc adapter cho một robot cụ thể.
+
+
+
+
+# BỔ SUNG v0.6 — LUCKIBOT PRO INTEGRATION SPECIFICATION
+
+> **Robot mục tiêu:** LuckiBot Pro / OrionStar Robotics.
+>
+> Module này cụ thể hóa phần Robot Delivery của Nha Hang Sen. Core system không gọi trực tiếp API của robot mà đi qua `Robot Gateway` và `LuckiBotProAdapter`.
+
+## LB-01. Phạm vi tích hợp
+
+```text
+Kitchen / KDS
+      ↓
+Food Ready
+      ↓
+Delivery Service
+      ↓
+Robot Scheduler
+      ↓
+LuckiBotProAdapter
+      ↓
+OrionStar API
+      ↓
+LuckiBot Pro
+      ↓
+Pickup Point
+      ↓
+Table Delivery Point
+      ↓
+Customer / Staff Confirmation
+      ↓
+Return Home
+```
+
+Nguyên tắc:
+1. Nha Hang Sen quản lý `Delivery Task`.
+2. OrionStar quản lý việc thực thi task trên robot.
+3. `vendor_task_id` của OrionStar phải được lưu riêng với `delivery_task_id` của Nha Hang Sen.
+4. Core system không phụ thuộc trực tiếp vào protocol riêng của OrionStar.
+5. Khi LuckiBot Pro lỗi, nhân viên phải có thể takeover.
+6. Robot không được là dependency bắt buộc để hoàn thành order.
+
+## LB-02. Kiến trúc tích hợp
+
+```text
+┌─────────────────────────────────────────────────────┐
+│                  NHA HANG SEN                       │
+│                                                     │
+│  Tablet ──┐                                         │
+│  POS ─────┼──→ Order Service                        │
+│  KDS ─────┘          │                              │
+│                      ↓                              │
+│                Delivery Service                     │
+│                      │                              │
+│                      ↓                              │
+│                Robot Scheduler                     │
+│                      │                              │
+│                      ↓                              │
+│                Robot Gateway                       │
+│                      │                              │
+│                      ↓                              │
+│             LuckiBotProAdapter                     │
+└──────────────────────┬──────────────────────────────┘
+                       │
+                       │ OrionStar API
+                       ↓
+              ┌──────────────────┐
+              │   LuckiBot Pro   │
+              │      Robot       │
+              └──────────────────┘
+```
+
+Không được:
+```text
+Order Service → OrionStar API
+```
+
+Phải:
+```text
+Order → Delivery Service → Robot Gateway → LuckiBotProAdapter → OrionStar API
+```
+
+## LB-03. LuckiBot Pro Adapter
+
+```typescript
+interface RobotAdapter {
+  getStatus(robotId: string): Promise<RobotStatus>;
+  getLocation(robotId: string): Promise<RobotLocation>;
+  getBattery(robotId: string): Promise<number>;
+  createDeliveryTask(
+    task: RobotDeliveryCommand
+  ): Promise<RobotTaskResult>;
+  navigate(
+    robotId: string,
+    destination: RobotDestination
+  ): Promise<RobotTaskResult>;
+  pause(robotId: string): Promise<void>;
+  resume(robotId: string): Promise<void>;
+  cancelTask(
+    robotId: string,
+    vendorTaskId: string
+  ): Promise<void>;
+  returnHome(robotId: string): Promise<void>;
+}
+```
+
+Implementation:
+```text
+RobotAdapter
+     │
+     └── LuckiBotProAdapter
+              │
+              └── OrionStar API Client
+```
+
+## LB-04. OrionStar API Boundary
+
+`OrionStarApiClient` chịu trách nhiệm:
+- auth/token
+- timeout
+- bounded retry
+- API error mapping
+- safe request/response logging
+- correlation ID
+- vendor task ID
+- API version compatibility
+
+Business code không được gọi vendor API trực tiếp.
+
+## LB-05. Robot Task ID Mapping
+
+Lưu riêng:
+```text
+delivery_task.id
+robot_task.id
+vendor_task_id
+```
+
+Ví dụ:
+```text
+delivery_task_id = 50025
+robot_task_id    = 70031
+vendor_task_id   = ORION-8A92F1
+```
+
+Không dùng `vendor_task_id` làm primary key của Nha Hang Sen.
+
+## LB-06. Position / Map Mapping
+
+`robot_locations`:
+```text
+id
+branch_id
+name
+type
+table_id
+floor
+zone
+robot_position_name
+x
+y
+orientation
+is_active
+metadata
+created_at
+updated_at
+```
+
+Ví dụ:
+```text
+name = TABLE_A05
+type = TABLE
+table_id = A05
+robot_position_name = A05
+```
+
+Flow:
+```text
+Order → table_id=A05 → Delivery Service → robot_locations
+      → robot_position_name=A05 → LuckiBotProAdapter
+      → OrionStar destination
+```
+
+Nếu OrionStar dùng tên position khác tên bàn, chỉ cần thay mapping, không thay business logic.
+
+## LB-07. Pickup Point
+
+Ví dụ:
+```text
+KITCHEN_PASS_01
+TABLE_A01
+TABLE_A02
+TABLE_A03
+TABLE_A05
+ROBOT_HOME
+CHARGING_STATION
+```
+
+Không hard-code tọa độ robot trong source code.
+
+## LB-08. Delivery Task
+
+```text
+delivery_tasks
+-------------------------
+id
+branch_id
+order_id
+dining_session_id
+table_id
+delivery_mode
+status
+priority
+pickup_location_id
+delivery_location_id
+robot_id
+vendor
+vendor_task_id
+retry_count
+assigned_at
+started_at
+arrived_at
+delivered_at
+completed_at
+failed_at
+failure_reason
+created_at
+updated_at
+```
+
+Robot:
+```text
+vendor = ORIONSTAR
+robot_model = LUCKIBOT_PRO
+```
+
+## LB-09. Robot Registry
+
+```text
+robots
+-------------------------
+id
+branch_id
+robot_code
+name
+vendor
+model
+serial_number
+status
+battery_level
+current_location_id
+current_vendor_task_id
+api_status
+firmware_version
+last_seen_at
+last_error_at
+capabilities
+created_at
+updated_at
+```
+
+Ví dụ:
+```text
+robot_code = R01
+vendor = ORIONSTAR
+model = LUCKIBOT_PRO
+status = IDLE
+battery_level = 82
+```
+
+## LB-10. LuckiBot Pro Capability
+
+```json
+{
+  "supports_navigation": true,
+  "supports_return_home": true,
+  "supports_pause": true,
+  "supports_resume": true,
+  "supports_task_cancel": true,
+  "supports_customer_screen": true,
+  "supports_voice": true,
+  "supports_auto_docking": true
+}
+```
+
+Các capability thực tế phải được xác nhận theo model, firmware và API version triển khai tại nhà hàng.
+
+## LB-11. Robot Delivery State Machine
+
+```text
+PENDING
+   ↓
+ASSIGNING
+   ↓
+ASSIGNED
+   ↓
+ROBOT_ACCEPTED
+   ↓
+GOING_TO_PICKUP
+   ↓
+ARRIVED_PICKUP
+   ↓
+LOADING
+   ↓
+GOING_TO_TABLE
+   ↓
+ARRIVED_TABLE
+   ↓
+WAITING_CUSTOMER
+   ↓
+DELIVERED
+   ↓
+RETURNING
+   ↓
+COMPLETED
+```
+
+Failure branches: `RETRY` / `FAILED` / `MANUAL_TAKEOVER`.
+
+## LB-12. KDS → LuckiBot Pro
+
+```text
+READY
+ ↓
+READY_FOR_ROBOT
+ ↓
+CREATE DELIVERY TASK
+```
+
+Ví dụ KDS:
+```text
+Order #10025
+Phở READY
+Cà phê READY
+Nước cam READY
+[ GIAO BẰNG ROBOT ]
+```
+
+## LB-13. Loading Flow
+
+MVP:
+```text
+LuckiBot Pro
+ ↓
+KITCHEN_PASS_01
+ ↓
+Robot tới điểm lấy món
+ ↓
+Nhân viên đặt món lên khay
+ ↓
+[CONFIRM LOADED]
+ ↓
+Robot đi tới bàn
+```
+
+Không yêu cầu camera/AI nhận diện món trong MVP. Giai đoạn sau có thể bổ sung weight sensor, tray sensor, computer vision hoặc RFID.
+
+## LB-14. Navigate tới bàn
+
+```text
+delivery_task
+ ↓
+delivery_location_id
+ ↓
+robot_locations.robot_position_name
+ ↓
+LuckiBotProAdapter.navigate()
+ ↓
+OrionStar API
+```
+
+Position mapping phụ thuộc deployment thực tế.
+
+## LB-15. Robot tới bàn
+
+Không đánh dấu `DELIVERED` ngay khi robot tới bàn.
+
+```text
+Robot ARRIVED
+ ↓
+ARRIVED_TABLE
+ ↓
+Tablet A05 / Robot screen
+ ↓
+WAITING_CUSTOMER
+```
+
+UI ví dụ:
+```text
+🤖 Đơn hàng #10025
+Món của quý khách đã tới.
+Bàn A05
+[ ĐÃ NHẬN MÓN ]
+```
+
+## LB-16. Delivery Confirmation
+
+MVP:
+```text
+Customer Tablet → [ĐÃ NHẬN MÓN]
+```
+
+Hoặc nhân viên xác nhận.
+
+Giai đoạn sau có thể bổ sung code, QR, robot screen, voice, tray/sensor hoặc Autodoor.
+
+`Robot ARRIVED` ≠ `Customer RECEIVED`.
+
+## LB-17. Customer Not Present
+
+```text
+ARRIVED_TABLE
+ ↓
+WAITING_CUSTOMER
+ ↓
+Timeout
+```
+
+Ví dụ timeout 60 giây, sau đó notify staff:
+```text
+[CONFIRM DELIVERY]
+[TAKEOVER]
+[RETURN ROBOT]
+```
+
+Thời gian timeout phải là configuration, không hard-code.
+
+## LB-18. Return Home
+
+```text
+CUSTOMER_CONFIRMED
+ ↓
+DELIVERED
+ ↓
+RETURNING
+ ↓
+ROBOT_HOME
+ ↓
+COMPLETED
+```
+
+Chức năng docking/charging chỉ được bật khi model và API thực tế hỗ trợ.
+
+## LB-19. Failure Handling
+
+### Robot offline
+```text
+heartbeat timeout → OFFLINE
+→ active task ERROR
+→ notify staff
+```
+
+### Navigation error
+```text
+retry → success
+       → hoặc notify staff
+```
+
+### Obstacle
+```text
+robot recovery
+→ nếu vẫn blocked
+→ notify staff
+→ manual takeover
+```
+
+### Low battery
+- dưới threshold: không nhận task mới
+- đang giao món mà battery critical: return/takeover theo policy
+- threshold phải là configuration
+
+## LB-20. Manual Takeover
+
+UI:
+```text
+Delivery #50025
+Robot R01
+Status: ERROR
+[RETRY]
+[REASSIGN]
+[STAFF DELIVERY]
+[CANCEL]
+```
+
+Khi nhân viên giao món:
+```text
+delivery_task.delivery_mode = STAFF
+delivery_task.status = MANUAL_TAKEOVER
+```
+
+## LB-21. Robot Scheduler
+
+MVP kiểm tra:
+1. robot online
+2. status = IDLE
+3. battery đủ
+4. capability phù hợp
+5. không có active task
+6. pickup gần nhất nếu có nhiều robot
+
+Giai đoạn sau: multi-robot scheduling, route optimization, dynamic priority, traffic và fleet balancing.
+
+## LB-22. Robot Gateway API Contract
+
+Internal Nha Hang Sen APIs:
+```http
+GET    /internal/robots
+GET    /internal/robots/{id}/status
+GET    /internal/robots/{id}/location
+POST   /internal/robots/{id}/tasks
+POST   /internal/robots/{id}/pause
+POST   /internal/robots/{id}/resume
+POST   /internal/robots/{id}/return-home
+POST   /internal/robots/{id}/tasks/{taskId}/cancel
+```
+
+Delivery APIs:
+```http
+POST /internal/delivery-tasks
+POST /internal/delivery-tasks/{id}/assign
+POST /internal/delivery-tasks/{id}/confirm-loaded
+POST /internal/delivery-tasks/{id}/confirm-delivered
+POST /internal/delivery-tasks/{id}/manual-takeover
+POST /internal/delivery-tasks/{id}/retry
+POST /internal/delivery-tasks/{id}/reassign
+```
+
+Đây là internal contract của Nha Hang Sen, không phải tuyên bố về endpoint public của OrionStar.
+
+## LB-23. Vendor API Mapping
+
+| Nha Hang Sen | OrionStar |
+|---|---|
+| `robot_id` | Robot/vendor identifier |
+| `robot_position_name` | Vendor position |
+| `delivery_task_id` | Vendor task ID mapping |
+| `navigate()` | Vendor navigation/task API |
+| `getStatus()` | Vendor status API |
+| `getLocation()` | Vendor location API |
+| `getBattery()` | Vendor battery/status API |
+| `returnHome()` | Vendor return/dock API nếu được hỗ trợ |
+
+Chỉ các mapping được vendor xác nhận mới trở thành implementation contract chính thức.
+
+## LB-24. Robot Event Normalization
+
+Vendor event → `LuckiBotProAdapter` → normalized event:
+```text
+ROBOT_ONLINE
+ROBOT_OFFLINE
+ROBOT_LOCATION_CHANGED
+ROBOT_BATTERY_CHANGED
+ROBOT_TASK_ACCEPTED
+ROBOT_ARRIVED_PICKUP
+ROBOT_ARRIVED_TABLE
+ROBOT_OBSTACLE
+ROBOT_ERROR
+ROBOT_TASK_COMPLETED
+```
+
+## LB-25. Robot Database
+
+```text
+robots
+robot_capabilities
+robot_locations
+robot_tasks
+robot_task_items
+robot_events
+robot_telemetry
+robot_errors
+robot_commands
+```
+
+Relationship:
+```text
+orders → delivery_tasks → robot_tasks → robots → robot_events
+```
+
+## LB-26. Robot Observability
+
+Metrics:
+```text
+robot_online_count
+robot_offline_count
+robot_low_battery_count
+delivery_pending_count
+delivery_active_count
+delivery_completed_count
+delivery_failed_count
+delivery_manual_takeover_count
+delivery_average_duration
+delivery_p95_duration
+robot_navigation_error_count
+robot_api_error_count
+robot_command_retry_count
+```
+
+Logs cần có:
+```text
+correlation_id
+delivery_task_id
+robot_task_id
+vendor_task_id
+robot_id
+event_type
+timestamp
+```
+
+Không log API secret, access token hoặc credential nhạy cảm.
+
+## LB-27. LuckiBot Pro MVP
+
+Required:
+- 1 branch
+- 1 floor
+- LuckiBot Pro
+- predefined map/positions
+- kitchen pickup point
+- table delivery points
+- online/offline
+- battery
+- assign
+- pickup navigation
+- staff loading confirmation
+- table navigation
+- customer/staff delivery confirmation
+- return home nếu được hỗ trợ
+- retry/reassign
+- manual takeover
+- event/audit log
+- dashboard
+
+Không yêu cầu ban đầu:
+- multi-floor
+- elevator
+- computer vision
+- automatic food recognition
+- dynamic mapping
+- fleet optimization
+- AI route planning
+- multi-branch robot fleet
+
+## LB-28. Pilot Acceptance Test
+
+### Happy path
+```text
+KDS READY
+→ CREATE DELIVERY TASK
+→ ASSIGN R01
+→ ARRIVED PICKUP
+→ CONFIRM LOADED
+→ ARRIVED TABLE
+→ CONFIRM RECEIVED
+→ RETURN HOME
+→ COMPLETED
+```
+
+### Failure scenarios
+- robot offline
+- navigation error
+- obstacle
+- customer absent
+- duplicate command
+- API timeout
+- server restart
+- robot restart
+- stale vendor task status
+
+Yêu cầu quan trọng: failure phải được reconcile an toàn, không tạo duplicate delivery task và không để order bị stuck vĩnh viễn.
+
+## LB-29. Thông tin phải xác nhận với OrionStar / Vendor
+
+1. exact LuckiBot Pro model
+2. firmware version
+3. OrionStar API version
+4. local API hay cloud API
+5. authentication mechanism
+6. API documentation/endpoints
+7. task creation
+8. destination/position API
+9. robot status
+10. robot location
+11. battery
+12. task status
+13. cancel
+14. pause/resume
+15. return-home
+16. event/webhook
+17. heartbeat
+18. map/position management
+19. multi-robot support
+20. docking/charging
+21. obstacle/error events
+22. offline behavior
+23. SDK/simulator
+24. rate limit
+25. production support/SLA
+26. network requirements
+27. cloud/vendor gateway requirement
+28. customer interaction / food pickup confirmation API
+29. Autodoor APIs nếu triển khai
+30. credential/security policy
+
+## LB-30. Decision Record
+
+```text
+Vendor: OrionStar Robotics
+Model: LuckiBot Pro
+Role: Food Delivery Robot
+```
+
+Nha Hang Sen owns:
+```text
+Order
+Delivery Task
+Table
+Customer confirmation
+Business rules
+Audit
+Retry / Reassign
+Manual takeover
+```
+
+OrionStar / LuckiBot owns:
+```text
+Robot navigation
+Robot movement
+Obstacle avoidance
+Robot hardware state
+Vendor task execution
+```
+
+Boundary:
+```text
+NHA HANG SEN
+      │
+Delivery Task
+      │
+Robot Gateway
+      │
+LuckiBotProAdapter
+      │
+ORIONSTAR
+      │
+LuckiBot Pro
+```
+
+## LB-31. Implementation Checklist
+
+Trước khi code production cần hoàn thành:
+
+- [ ] Xác nhận đúng model LuckiBot Pro
+- [ ] Xác nhận firmware
+- [ ] Nhận API/SDK documentation từ vendor
+- [ ] Có test account/credential riêng cho staging
+- [ ] Xác định local/cloud network topology
+- [ ] Xác định map và position naming
+- [ ] Xác định pickup point
+- [ ] Xác định toàn bộ table delivery point
+- [ ] Test status/location/battery
+- [ ] Test create task
+- [ ] Test cancel/pause/resume nếu hỗ trợ
+- [ ] Test return home
+- [ ] Test event/webhook nếu hỗ trợ
+- [ ] Test timeout/retry/idempotency
+- [ ] Test robot offline
+- [ ] Test manual takeover
+- [ ] Test server restart/reconciliation
+- [ ] Test duplicate command
+- [ ] Test production credential/security policy
+- [ ] Chốt pilot acceptance criteria
+
+> **Lưu ý:** Các endpoint, field name và capability cụ thể của OrionStar/LuckiBot Pro chỉ được coi là contract chính thức sau khi đối chiếu với tài liệu API/SDK và firmware/model thực tế của robot được triển khai. Các interface và endpoint `/internal/*` trong tài liệu này là thiết kế nội bộ của Nha Hang Sen.
+
+
+# BỔ SUNG v0.5 — DATABASE MODULE MAP
+
+Để tránh bỏ sót domain khi bắt đầu thiết kế DB:
+
+```text
+AUTH
+├── users
+├── roles
+├── permissions
+├── user_roles
+└── role_permissions
+
+DEVICE
+├── devices
+├── device_pairings
+└── device_sessions
+
+BRANCH
+└── branches
+
+MENU
+├── categories
+├── menu_items
+├── menu_versions
+├── price_versions
+├── modifier_groups
+├── modifiers
+└── item_modifier_groups
+
+TABLE
+├── restaurant_tables
+├── dining_sessions
+└── table_transfers
+
+ORDER
+├── orders
+├── order_items
+├── order_item_modifiers
+├── order_events
+└── outbox_events
+
+KITCHEN
+├── kds_tickets
+├── kds_ticket_items
+└── kitchen_stations
+
+BILL / PAYMENT
+├── bills
+├── bill_items
+├── payments
+├── payment_transactions
+└── shifts
+
+PROMOTION
+├── promotions
+├── promotion_rules
+├── vouchers
+└── voucher_redemptions
+
+CUSTOMER
+├── customers
+├── customer_preferences
+├── customer_orders
+├── customer_points
+└── customer_vouchers
+
+INVENTORY
+├── warehouses
+├── ingredients
+├── recipes
+├── recipe_items
+├── inventory_balances
+├── inventory_transactions
+├── stocktakes
+└── wastages
+
+INTEGRATION
+├── payment_integrations
+├── einvoice_integrations
+├── accounting_integrations
+├── llm_integrations
+└── robot_integrations
+
+ROBOT
+├── robots
+├── robot_tasks
+├── robot_events
+└── robot_locations
+
+AI
+├── ai_conversations
+├── ai_messages
+├── ai_tool_calls
+├── ai_usage
+└── ai_errors
+
+OPERATIONS
+├── notifications
+├── notification_deliveries
+├── audit_logs
+├── system_configs
+├── backup_logs
+└── incident_logs
+```
+
+---
+
+# BỔ SUNG v0.5 — OPEN QUESTIONS CẦN CHỐT TRƯỚC SPRINT 0
+
+Ngoài các câu hỏi hiện có, cần chốt thêm:
+
+1. Có cần multi-branch ngay từ DB hay chỉ chuẩn bị schema?
+2. Guest có được order không cần account?
+3. QR order có cần customer identification không?
+4. Modifier có bắt buộc với một số món không?
+5. Có cho phép sửa order sau khi KDS đã ACK không?
+6. Ai có quyền cancel món sau khi bếp bắt đầu chế biến?
+7. Discount có cần approval hai cấp không?
+8. Có cần customer loyalty/point trong MVP không?
+9. Có cần refund payment trong MVP không?
+10. Có cần partial payment/multiple payment method trong một bill không?
+11. Printer nào là model chuẩn để pilot?
+12. KDS chạy browser/PWA hay native app?
+13. MQTT có bắt buộc cho MVP hay chỉ dùng cho robot/device?
+14. Server chạy tại nhà hàng hay cloud?
+15. Có VPN remote support không?
+16. Backup offsite đặt ở đâu?
+17. AI provider nào được phép sử dụng?
+18. Dữ liệu nào tuyệt đối không được gửi cho LLM?
+19. Robot SDK/API chính thức là gì?
+20. Khi robot lỗi, staff takeover flow như thế nào?

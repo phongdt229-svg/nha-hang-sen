@@ -21,7 +21,7 @@ export function roomsFor(type: EventType, data: RoutedPayload): string[] {
   for (const t of data.tableIds ?? []) rooms.add(R.table(t));
   if (data.station) rooms.add(R.kitchen(data.station));
   for (const s of data.stations ?? []) rooms.add(R.kitchen(s));
-  if (type.startsWith('trip.') || type === 'robot.status') rooms.add(R.dispatch);
+  if (type.startsWith('delivery.') || type === 'robot.status') rooms.add(R.dispatch);
   return [...rooms];
 }
 

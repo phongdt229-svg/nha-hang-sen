@@ -54,6 +54,8 @@ apps/tablet     React PWA – khách gọi món
 apps/pos        React – thu ngân, lễ tân, cảnh báo bếp, tổng quan
 apps/kds        React – màn hình bếp
 apps/print-agent Node.js chạy tại quán – nhận lệnh in qua LAN, gửi ESC/POS tới máy in nhiệt
+apps/robot-bridge Node.js cạnh sa bàn – nối mBot v1 (serial USB/Bluetooth) với API qua MQTT; có mBot ảo
+firmware/mbot-v1 Arduino cho mBot v1 (mCore): dò line, đếm vạch dừng, siêu âm, nút khách
 packages/types  Kiểu dữ liệu, bảng chuyển trạng thái, danh sách sự kiện
 packages/pricing Tính tiền: số nguyên đồng, VAT nhiều mức theo ngày hiệu lực, giảm giá, tách bill, ngày kinh doanh
 packages/ui     API client, WebSocket có bắt kịp sự kiện, component dùng chung
@@ -77,7 +79,7 @@ infra/          docker-compose, nginx, mosquitto, sao lưu (backup/), giám sát
 | 5 | Tách/hủy tách bill, gộp phiên, hoàn tiền (bút toán âm), kết ca + duyệt chênh lệch, báo cáo doanh thu/KPI/điều chỉnh, chốt ngày + job đêm, xuất Excel/CSV/PDF | Xong: backend + test + màn hình POS (tách/hủy tách bill, gộp bàn, hoàn tiền, mục Ca làm, mục Báo cáo có xuất file và chốt ngày) |
 | 6 | Webhook thanh toán có chữ ký, chống trùng, đối soát định kỳ | Backend xong + test |
 | 6 | Hóa đơn điện tử: tự phát hành sau thanh toán qua hàng đợi (idempotency theo bill), tra cứu MST, Failed → sửa người mua → gửi lại không trùng, mất mạng → xếp hàng + quét định kỳ, hoàn tiền → hóa đơn điều chỉnh giảm, điều chỉnh/thay thế (kế toán), bảng kê theo thuế suất, đối soát doanh thu = hóa đơn; POS nhập MST, in số/mã tra cứu, cảnh báo hóa đơn lỗi | Xong + test (adapter giả lập). **Chưa có:** adapter nhà cung cấp thật và webhook `/webhooks/einvoice/{provider}` — chờ sandbox |
-| 11–13 | Robot: `packages/robot-adapters` (giả lập, MQTT, thủ công, khung OrionStar), điều phối (gom món, chọn robot, xác thực khay, lỗi → giao robot khác, chuyển nhân viên, đổi bàn đích), chỉ số giao món | Backend xong + test; **chưa có màn hình điều phối/sơ đồ** |
+| 11–13 | Robot theo v0.7 (RD, MB): Delivery Task với máy trạng thái RD-11 dùng chung mBot/LuckiBot, Robot Gateway (`/internal/...` LB-22), `MbotV1Adapter` + robot bridge + firmware mBot v1, robot giả lập chạy theo sa bàn; retry vật cản, heartbeat offline, chờ khách 60 giây, pin 30/15%, retry/reassign/nhân viên giao/hủy, đối chiếu sau khi server khởi động lại, nhật ký `delivery_events`; POS tab **Robot** (sa bàn, điều khiển, giả lập lỗi), KDS "Đã đặt món lên robot", tablet "Đã nhận món" | Xong + test (6 kịch bản MB-21, đầu–cuối qua MQTT với mBot ảo). **Chưa có:** chạy firmware trên mBot thật; `LuckiBotProAdapter` chờ OpenAPI OrionStar |
 | 3 | Print agent ESC/POS (`apps/print-agent`): hàng đợi lệnh in có idempotency, agent hỏi việc mỗi giây kèm trạng thái máy in, hết giấy / mất kết nối → lệnh nằm lại hàng đợi + POS báo lỗi, agent treo → hết hạn giữ lệnh thì giao lại; tự in phiếu bếp khi KDS FALLBACK; POS in phiếu thanh toán, in lại phiếu bếp, in thử, ghép agent | Xong + test (máy in TCP giả lập) |
 | 8 | AI tư vấn món (FastAPI) | Chưa làm |
 | 9–10, 14 | Kho nguyên liệu, định lượng, trừ kho, kiểm kê, food cost | Chưa làm |
@@ -96,4 +98,4 @@ PAIRING_CODE=123456 API_URL=http://192.168.1.10:3000 PRINTERS="BEP_NONG=tcp://19
 
 Máy in mạng dùng cổng RAW 9100; `@58` cho giấy 58mm; `console:` in ra màn hình, `file:đường-dẫn` ghi lệnh ESC/POS ra file để thử không cần máy in. Mặc định bỏ dấu tiếng Việt (`PRINT_ENCODING=ascii`) vì nhiều máy in nhiệt không có bảng mã tiếng Việt; máy in hỗ trợ UTF-8 thì đặt `PRINT_ENCODING=utf8`. Token thiết bị lưu ở `.print-agent-token`, các lần sau không cần mã ghép.
 
-Robot giả lập: 3 robot `R01–R03` có sẵn sau `pnpm db:seed`; tốc độ chỉnh bằng `SIM_SPEED`. Robot OrionStar cần tài liệu OpenAPI + appid/secret từ nhà phân phối để hiện thực `OrionStarClient`.
+**Robot giao món:** sau `pnpm db:seed` có R01 = mBot v1 (qua robot bridge) và R02, R03 = robot giả lập (tốc độ chỉnh bằng `SIM_SPEED`). Demo trên sa bàn A1, chạy thử không cần phần cứng bằng `SERIAL=virtual`: [docs/robot/demo-mbot-v1.md](docs/robot/demo-mbot-v1.md). LuckiBot Pro cần tài liệu OpenAPI + appid/secret từ OrionStar để hiện thực `OrionStarClient`.

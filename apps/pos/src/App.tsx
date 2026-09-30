@@ -1,4 +1,4 @@
-import type { DomainEvent, KitchenTicketDto, TableDto } from '@nhs/types';
+import type { DomainEvent, KitchenTicketDto, RobotTelemetry, TableDto } from '@nhs/types';
 import { Button, ConnectionDot, createApi, LoginScreen, Logo, storage, useRealtime, useToast } from '@nhs/ui';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useCallback, useMemo, useState } from 'react';
@@ -8,6 +8,7 @@ import { Pos } from './context';
 import { Overview } from './Overview';
 import { printerProblem, type PrintStatus } from './Printing';
 import { Reports } from './Reports';
+import { Robots } from './Robots';
 import { ShiftScreen } from './Shift';
 import { TableMap } from './TableMap';
 
@@ -40,12 +41,13 @@ export function App() {
   return <Shell token={token} onLogout={logout} />;
 }
 
-type Tab = 'tables' | 'alerts' | 'overview' | 'shift' | 'reports' | 'accounts';
+type Tab = 'tables' | 'alerts' | 'robots' | 'overview' | 'shift' | 'reports' | 'accounts';
 
 /** Mục hiện theo vai trò (mục 9): kế toán chỉ xem báo cáo, phục vụ không thu tiền. */
 const TAB_ROLES: Record<Tab, string[]> = {
   tables: ['ADMIN', 'MANAGER', 'CASHIER', 'WAITER'],
   alerts: ['ADMIN', 'MANAGER', 'CASHIER', 'WAITER'],
+  robots: ['ADMIN', 'MANAGER', 'CASHIER', 'WAITER'],
   overview: ['ADMIN', 'MANAGER', 'CASHIER', 'WAITER'],
   shift: ['ADMIN', 'MANAGER', 'CASHIER'],
   reports: ['ADMIN', 'MANAGER', 'ACCOUNTANT'],
@@ -70,7 +72,15 @@ function Shell({ token, onLogout }: { token: string; onLogout: () => void }) {
     enabled: floor && role !== 'WAITER',
   });
 
-  const connected = useRealtime({ token, storageKey: 'pos' }, (e: DomainEvent) => {
+  const connected = useRealtime(
+    { token, storageKey: 'pos' },
+    (e: DomainEvent) => {
+    if (e.type.startsWith('delivery.') || e.type === 'robot.status') {
+      void qc.invalidateQueries({ queryKey: ['delivery'] });
+      void qc.invalidateQueries({ queryKey: ['robots'] });
+    }
+    if (e.type === 'delivery.task.failed') toast.show('Giao món bằng robot bị lỗi — mở mục Robot để xử lý.');
+    if (e.type === 'delivery.customer.timeout') toast.show('Robot đang chờ khách nhận món quá lâu — mở mục Robot.');
     if (e.type === 'table.status' || e.type.startsWith('session.')) void qc.invalidateQueries({ queryKey: ['tables'] });
     if (e.type.startsWith('session.') || e.type.startsWith('bill.')) void qc.invalidateQueries({ queryKey: ['session'] });
     if (e.type === 'kitchen.fallback') toast.show(`Bếp chưa nhận order! Kiểm tra mục Cảnh báo bếp.`);
@@ -91,7 +101,13 @@ function Shell({ token, onLogout }: { token: string; onLogout: () => void }) {
     if (e.type.startsWith('print.')) void qc.invalidateQueries({ queryKey: ['print'] });
     if (e.type === 'print.failed') toast.show('Máy in gặp sự cố — lệnh in đang chờ trong hàng đợi. Xem mục Cảnh báo.');
     if (e.type === 'einvoice.failed') toast.show('Hóa đơn điện tử bị từ chối — xem mục Cảnh báo.');
-  });
+    },
+    {
+      // Vị trí tức thời của robot (không lưu sổ) để vẽ trên sa bàn.
+      'robot.telemetry': (t: RobotTelemetry) =>
+        qc.setQueryData<Record<string, RobotTelemetry>>(['telemetry'], (old) => ({ ...(old ?? {}), [t.robotId]: t })),
+    },
+  );
 
   const printStatus = useQuery({ queryKey: ['print'], queryFn: () => api.get<PrintStatus>('/print/status'), refetchInterval: 15_000, enabled: floor });
   const alertCount =
@@ -102,6 +118,7 @@ function Shell({ token, onLogout }: { token: string; onLogout: () => void }) {
     [
       ['tables', 'Sơ đồ bàn'],
       ['alerts', `Cảnh báo${alertCount ? ` (${alertCount})` : ''}`],
+      ['robots', 'Robot'],
       ['overview', 'Tổng quan'],
       ['shift', 'Ca làm'],
       ['reports', 'Báo cáo'],
@@ -139,6 +156,7 @@ function Shell({ token, onLogout }: { token: string; onLogout: () => void }) {
         <main className="flex-1">
           {tab === 'tables' && <TableMap tables={tables.data ?? []} />}
           {tab === 'alerts' && <Alerts tickets={fallback.data ?? []} />}
+          {tab === 'robots' && <Robots />}
           {tab === 'overview' && <Overview />}
           {tab === 'shift' && <ShiftScreen />}
           {tab === 'reports' && <Reports />}

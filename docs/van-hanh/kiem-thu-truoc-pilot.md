@@ -12,14 +12,14 @@ Ký hiệu cột "Tự động":
 |---|---|---|---|---|
 | 1 | Khách bấm xác nhận 2 lần → chỉ 1 order | ✅ | `core`: "bấm xác nhận 5 lần song song"; k6: 0 order trùng khi gửi lại cùng khóa | Bấm đúp "Xác nhận gọi món" trên tablet thật |
 | 2 | Ngắt mạng KDS → retry → phiếu giấy → nhập tay → luồng tiếp tục | ✅ | `core`: "KDS không ACK → gửi lại 3 lần → FALLBACK"; `print`: "tự in phiếu giấy ở trạm bếp" | Rút dây mạng màn hình bếp giữa giờ thử |
-| 3 | Chuyển bàn giữa lúc bếp đang nấu → robot giao đúng bàn mới | ✅ | `robots`: "chuyển bàn giữa lúc bếp đang nấu", "chuyển bàn khi robot đang chạy" | Với robot thật (khi có) |
+| 3 | Chuyển bàn giữa lúc bếp đang nấu → robot giao đúng bàn mới | ✅ | `delivery`: "khách chuyển bàn khi robot đang chạy → đổi bàn đích" | Với mBot trên sa bàn / robot thật |
 | 4 | Gộp bàn, tách bill theo món và theo nhóm → tổng khớp | ✅ | `sprint5`: tách/hủy tách/gộp; `pricing`: "tổng các bill con bằng bill gốc" | Thu ngân tách bill 3 phần trên POS |
-| 5 | Robot kẹt / hết pin / mất kết nối → món quay lại hàng chờ | ✅ | `robots`: "robot kẹt", "robot mất kết nối", "chuyển nhân viên giao" | Với robot thật |
-| 6 | Pickup quét sai khay → hệ thống chặn | ✅ | `robots`: "quét sai khay bị chặn" | |
+| 5 | Robot kẹt / hết pin / mất kết nối → món quay lại hàng chờ, chuyển robot khác hoặc nhân viên | ✅ | `delivery`: offline → giao robot khác → nhân viên giao; vật cản kẹt → nhân viên giao; pin nguy hiểm; `mbot`: bridge mất kết nối | Diễn 6 kịch bản MB-21 trên sa bàn ([demo](../robot/demo-mbot-v1.md)) |
+| 6 | Pickup quét sai khay → hệ thống chặn | ✅ | `delivery` Scenario 1: `confirm-loaded` với mã khay sai → 409 `WRONG_TRAY`, ghi nhật ký | |
 | 7 | Webhook thanh toán gửi 2 lần → ghi nhận 1 lần | ✅ | `payments`: "webhook gửi 2 lần" | Với sandbox cổng thanh toán thật |
 | 8 | Mất Internet toàn quán → gọi món, bếp, robot vẫn chạy qua LAN | 🔲 | Kiến trúc edge: mọi dịch vụ chạy trên server tại quán, không gọi ra ngoài trong luồng chính | **Rút dây WAN của router** 30 phút giờ thấp điểm: gọi món, bếp, thu tiền mặt, in phiếu |
 | 9 | Tải giờ cao điểm: 40 bàn, 200 order/giờ, ACK < 1 giây | 🟡 | k6 trên máy dev: 30 bàn, ≈ 4.800 order/giờ, p95 ACK ≤ 0,5 giây ([kết quả](../../infra/k6/README.md#kết-quả)) | **Chạy lại 40 bàn trên server thật**, từ máy khác trong LAN |
-| 10 | Đo Ready → Pickup → Delivered, tỷ lệ fallback, thời gian chế biến | 🟡 | `robots`: "báo cáo chỉ số giao món"; `/metrics`: độ trễ ACK, số FALLBACK; Grafana | Xem dashboard sau buổi chạy thử |
+| 10 | Đo Ready → Pickup → Delivered, tỷ lệ fallback, thời gian chế biến | 🟡 | `delivery`: "báo cáo giao món" (Ready → loaded → delivered, tỷ lệ giao tay); `/metrics`: độ trễ ACK, số FALLBACK; Grafana | Xem dashboard sau buổi chạy thử |
 | 11 | Doanh thu = tổng thanh toán = tổng hóa đơn điện tử (theo ngày kinh doanh) | ✅ | `einvoice`: "doanh thu ngày kinh doanh = tổng hóa đơn" | Kế toán đối chiếu một ngày chạy thử |
 | 12 | Hoàn tiền sau khi chốt ngày → ngày cũ không đổi, bút toán âm ở ngày hoàn | ✅ | `sprint5`: "hoàn tiền sau khi chốt ngày" | |
 | 13 | Kết ca lệch tiền → cảnh báo, yêu cầu duyệt | ✅ | `sprint5`: "kết ca: tiền mặt đếm lệch vượt ngưỡng" | |

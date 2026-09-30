@@ -1,4 +1,4 @@
-import type { DomainEvent, MenuCategoryDto, MenuItemDto, OrderDto, SessionDto } from '@nhs/types';
+import type { DeliveryTaskDto, DomainEvent, MenuCategoryDto, MenuItemDto, OrderDto, SessionDto } from '@nhs/types';
 import {
   ApiError,
   Badge,
@@ -69,6 +69,9 @@ function Tablet({ token, device, onUnauthorized }: { token: string; device: Pair
     enabled: !!sessionId,
   });
 
+  // Robot giao món tới bàn (RD-13): khách xác nhận "Đã nhận món" ngay trên tablet.
+  const deliveries = useQuery({ queryKey: ['delivery'], queryFn: () => api.get<DeliveryTaskDto[]>('/internal/delivery-tasks'), enabled: !!sessionId });
+
   const bindSession = useCart((s) => s.bindSession);
   useEffect(() => {
     if (session.isSuccess) bindSession(sessionId);
@@ -80,6 +83,10 @@ function Tablet({ token, device, onUnauthorized }: { token: string; device: Pair
       void qc.invalidateQueries({ queryKey: ['session'] });
     }
     if (e.type.startsWith('order.') || e.type.startsWith('kitchen.')) void qc.invalidateQueries({ queryKey: ['orders'] });
+    if (e.type.startsWith('delivery.')) {
+      void qc.invalidateQueries({ queryKey: ['delivery'] });
+      void qc.invalidateQueries({ queryKey: ['orders'] });
+    }
   });
 
   if (session.isLoading) return <Centered>Đang tải…</Centered>;
@@ -130,6 +137,8 @@ function Tablet({ token, device, onUnauthorized }: { token: string; device: Pair
           <OrdersView orders={orders.data ?? []} />
         )}
       </main>
+
+      <RobotDelivery tasks={(deliveries.data ?? []).filter((t) => t.sessionId === sessionId)} api={api} onError={toast.show} />
 
       {!locked && tab === 'menu' && <CartBar items={menu.data?.items ?? []} onOpen={() => setCartOpen(true)} />}
       {cartOpen && (
@@ -371,4 +380,52 @@ function OrdersView({ orders }: { orders: OrderDto[] }) {
       ))}
     </div>
   );
+}
+
+/** Robot đang mang món tới / đã tới bàn: khách bấm "Đã nhận món" (không tự coi là đã giao khi robot tới, MB-14). */
+function RobotDelivery({ tasks, api, onError }: { tasks: DeliveryTaskDto[]; api: ReturnType<typeof createApi>; onError: (m: string) => void }) {
+  const qc = useQueryClient();
+  const [busy, setBusy] = useState(false);
+  const arrived = tasks.find((t) => t.status === 'ARRIVED_TABLE' || t.status === 'WAITING_CUSTOMER');
+  const coming = tasks.find((t) => t.status === 'GOING_TO_TABLE' || t.status === 'LOADING');
+
+  async function received(t: DeliveryTaskDto) {
+    setBusy(true);
+    try {
+      await api.post(`/internal/delivery-tasks/${t.id}/confirm-delivered`);
+      void qc.invalidateQueries({ queryKey: ['delivery'] });
+      void qc.invalidateQueries({ queryKey: ['orders'] });
+    } catch (e) {
+      onError(errorMessage(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (arrived) {
+    return (
+      <Modal title="Robot đã tới bàn" onClose={() => undefined}>
+        <p className="text-lg">Mời quý khách lấy món trên robot:</p>
+        <ul className="my-3 space-y-1 text-lg font-semibold">
+          {arrived.items.map((i) => (
+            <li key={i.id}>
+              {i.qty} × {i.name}
+            </li>
+          ))}
+        </ul>
+        <p className="mb-4 text-sm text-stone-500">Sau khi lấy đủ món, quý khách bấm nút bên dưới (hoặc nút trên robot) để robot quay về.</p>
+        <Button size="lg" variant="good" className="w-full" disabled={busy} onClick={() => void received(arrived)}>
+          Đã nhận món
+        </Button>
+      </Modal>
+    );
+  }
+  if (coming) {
+    return (
+      <div className="bg-sen-50 px-4 py-2 text-center text-sm font-medium text-sen-700" role="status">
+        Robot đang mang {coming.items.reduce((a, i) => a + i.qty, 0)} món tới bàn…
+      </div>
+    );
+  }
+  return null;
 }

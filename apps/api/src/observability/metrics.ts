@@ -126,6 +126,7 @@ export const metrics = {
   einvoiceUnissued: registry.add(new Gauge('nhs_einvoice_unissued', 'Hóa đơn điện tử chưa phát hành theo trạng thái')),
   tablesByStatus: registry.add(new Gauge('nhs_tables', 'Số bàn theo trạng thái')),
   robotsByState: registry.add(new Gauge('nhs_robots', 'Số robot theo trạng thái')),
+  deliveryTasks: registry.add(new Gauge('nhs_delivery_tasks', 'Delivery task đang mở theo trạng thái')),
   up: registry.add(new Gauge('nhs_dependency_up', '1 nếu phụ thuộc (postgres, redis) phản hồi')),
   processStart: registry.add(new Gauge('nhs_process_start_time_seconds', 'Thời điểm tiến trình API khởi động')),
   memory: registry.add(new Gauge('nhs_process_resident_memory_bytes', 'Bộ nhớ RSS của tiến trình API')),

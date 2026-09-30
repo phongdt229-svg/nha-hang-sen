@@ -551,9 +551,10 @@ enum DeliveryMode {
   STAFF
 }
 
+/// MAKEBLOCK = mBot v1 demo trên sa bàn (MB-09); ORIONSTAR = LuckiBot Pro production (LB-09).
 enum RobotVendor {
   SIMULATED
-  MQTT
+  MAKEBLOCK
   ORIONSTAR
   MANUAL
 }
@@ -567,73 +568,138 @@ enum RobotState {
   DISABLED
 }
 
-enum TripStage {
-  CREATED
+/// Trạng thái Delivery Task (RD-02, RD-11) — dùng chung cho mọi loại robot.
+enum DeliveryStatus {
+  PENDING
+  ASSIGNING
   ASSIGNED
-  AT_PICKUP
-  MOVING
-  ARRIVED
+  ROBOT_ACCEPTED
+  GOING_TO_PICKUP
+  ARRIVED_PICKUP
+  LOADING
+  GOING_TO_TABLE
+  ARRIVED_TABLE
+  WAITING_CUSTOMER
   DELIVERED
   RETURNING
-  DONE
+  COMPLETED
   FAILED
   CANCELLED
+  MANUAL_TAKEOVER
+}
+
+enum RobotLocationKind {
+  KITCHEN_PASS
+  TABLE
+  HOME
+  CHARGER
 }
 
 model Robot {
-  id         String      @id @default(uuid())
-  code       String      @unique
-  name       String
-  vendor     RobotVendor
-  model      String?
-  serial     String?
-  /// Mã robot phía hãng/thiết bị (robot_id MQTT, SN OrionStar)
-  externalId String      @map("external_id")
-  state      RobotState  @default(IDLE)
-  battery    Int         @default(100)
-  location   String      @default("CHO")
-  zone       String?
-  lastSeenAt DateTime?   @map("last_seen_at")
-  error      String?
-  trips      DeliveryTrip[]
+  id                 String         @id @default(uuid())
+  code               String         @unique
+  name               String
+  vendor             RobotVendor
+  model              String?
+  serial             String?
+  /// Mã robot phía hãng/thiết bị (robot id trên robot bridge, SN OrionStar)
+  externalId         String         @map("external_id")
+  state              RobotState     @default(IDLE)
+  battery            Int            @default(100)
+  /// Pin do phần mềm giả lập vì phần cứng không báo (MB-15 SIMULATED_TELEMETRY)
+  telemetrySimulated Boolean        @default(false) @map("telemetry_simulated")
+  paused             Boolean        @default(false)
+  /// Mã vị trí robot_locations, hoặc MOVING khi đang chạy
+  location           String         @default("ROBOT_HOME")
+  capabilities       Json           @default("{}")
+  zone               String?
+  lastSeenAt         DateTime?      @map("last_seen_at")
+  error              String?
+  lastErrorAt        DateTime?      @map("last_error_at")
+  tasks              DeliveryTask[]
 
   @@map("robots")
 }
 
-/// Chuyến giao món (mục 5.3). Mã khay = mã chuyến, in QR dán trên khay để xác thực pickup.
-model DeliveryTrip {
-  id          String     @id @default(uuid())
-  seqNo       Int        @default(autoincrement()) @map("seq_no")
-  code        String     @unique
-  robotId     String?    @map("robot_id")
-  sessionId   String     @map("session_id")
-  tableId     String     @map("table_id")
-  tableCode   String     @map("table_code")
-  stage       TripStage  @default(CREATED)
-  failReason  String?    @map("fail_reason")
-  createdAt   DateTime   @default(now()) @map("created_at")
-  assignedAt  DateTime?  @map("assigned_at")
-  pickedUpAt  DateTime?  @map("picked_up_at")
-  arrivedAt   DateTime?  @map("arrived_at")
-  deliveredAt DateTime?  @map("delivered_at")
-  endedAt     DateTime?  @map("ended_at")
-  version     Int        @default(0)
-  robot       Robot?     @relation(fields: [robotId], references: [id])
-  items       TripItem[]
+/// Vị trí trừu tượng robot đi tới (MB-06, RD-05/06). vendor_mapping: cách gọi riêng từng loại robot,
+/// ví dụ {"MAKEBLOCK": {"stop": 1}, "SIMULATED": {"stop": 1}, "ORIONSTAR": {"position": "Bàn 01"}}.
+model RobotLocation {
+  code          String            @id
+  kind          RobotLocationKind
+  name          String
+  tableId       String?           @unique @map("table_id")
+  vendorMapping Json              @default("{}") @map("vendor_mapping")
+  sort          Int               @default(0)
 
-  @@index([stage])
-  @@index([sessionId])
-  @@map("delivery_trips")
+  @@map("robot_locations")
 }
 
-model TripItem {
-  tripId      String       @map("trip_id")
-  orderItemId String       @map("order_item_id")
-  trip        DeliveryTrip @relation(fields: [tripId], references: [id])
+/// Một lần robot giao món (RD-02). Tách khỏi trạng thái order.
+model DeliveryTask {
+  id                 String             @id @default(uuid())
+  seqNo              Int                @default(autoincrement()) @map("seq_no")
+  code               String             @unique
+  robotId            String?            @map("robot_id")
+  sessionId          String             @map("session_id")
+  tableId            String             @map("table_id")
+  tableCode          String             @map("table_code")
+  status             DeliveryStatus     @default(PENDING)
+  /// Vấn đề đang chặn task: OBSTACLE, OFFLINE, LOW_BATTERY, API_TIMEOUT, CUSTOMER_ABSENT, RESTART, STOPPED, ROBOT_ERROR
+  problem            String?
+  failureReason      String?            @map("failure_reason")
+  /// Bước đang dở trước khi FAILED — retry quay lại bước này
+  failedFrom         DeliveryStatus?    @map("failed_from")
+  priority           Int                @default(0)
+  pickupLocation     String             @map("pickup_location")
+  deliveryLocation   String             @map("delivery_location")
+  /// Số lần thử lại trong bước hiện tại (vật cản, lệnh không tới được)
+  retryCount         Int                @default(0) @map("retry_count")
+  assignAttempts     Int                @default(0) @map("assign_attempts")
+  nextRetryAt        DateTime?          @map("next_retry_at")
+  /// CUSTOMER (tablet), ROBOT_BUTTON (nút trên robot), STAFF
+  confirmedBy        String?            @map("confirmed_by")
+  customerNotifiedAt DateTime?          @map("customer_notified_at")
+  createdAt          DateTime           @default(now()) @map("created_at")
+  assignedAt         DateTime?          @map("assigned_at")
+  startedAt          DateTime?          @map("started_at")
+  loadedAt           DateTime?          @map("loaded_at")
+  arrivedAt          DateTime?          @map("arrived_at")
+  deliveredAt        DateTime?          @map("delivered_at")
+  completedAt        DateTime?          @map("completed_at")
+  failedAt           DateTime?          @map("failed_at")
+  version            Int                @default(0)
+  robot              Robot?             @relation(fields: [robotId], references: [id])
+  items              DeliveryTaskItem[]
+  events             DeliveryEvent[]
 
-  @@id([tripId, orderItemId])
+  @@index([status])
+  @@index([sessionId])
+  @@map("delivery_tasks")
+}
+
+model DeliveryTaskItem {
+  taskId      String       @map("task_id")
+  orderItemId String       @map("order_item_id")
+  task        DeliveryTask @relation(fields: [taskId], references: [id])
+
+  @@id([taskId, orderItemId])
   @@index([orderItemId])
-  @@map("trip_items")
+  @@map("delivery_task_items")
+}
+
+/// Nhật ký từng bước của task (RD-15): TASK_CREATED, ROBOT_ASSIGNED, ITEMS_LOADED, ARRIVED_TABLE, CUSTOMER_CONFIRMED…
+model DeliveryEvent {
+  id        String       @id @default(uuid())
+  taskId    String       @map("task_id")
+  type      String
+  robotId   String?      @map("robot_id")
+  location  String?
+  payload   Json?
+  createdAt DateTime     @default(now()) @map("created_at")
+  task      DeliveryTask @relation(fields: [taskId], references: [id])
+
+  @@index([taskId, createdAt])
+  @@map("delivery_events")
 }
 
 enum PrinterState {

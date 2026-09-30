@@ -1,9 +1,11 @@
-import type { DomainEvent, KitchenTicketDto, MenuItemDto, OrderItemDto } from '@nhs/types';
+import type { DeliveryTaskDto, DomainEvent, KitchenTicketDto, MenuItemDto, OrderItemDto, ReadyGroupDto } from '@nhs/types';
 import {
   Badge,
   Button,
   ConnectionDot,
   createApi,
+  DELIVERY_STATUS_LABEL,
+  DELIVERY_STATUS_TONE,
   errorMessage,
   ITEM_STATUS_LABEL,
   ITEM_STATUS_TONE,
@@ -117,6 +119,7 @@ function Kitchen({ token, device, station, onUnauthorized }: { token: string; de
     }
     if (e.type.startsWith('kitchen.') || e.type.startsWith('order.')) void qc.invalidateQueries({ queryKey: ['tickets'] });
     if (e.type.startsWith('menu.')) void qc.invalidateQueries({ queryKey: ['menu'] });
+    if (e.type.startsWith('delivery.') || e.type === 'kitchen.ready') void qc.invalidateQueries({ queryKey: ['delivery'] });
   });
 
   // Phiếu SENT còn sót (vd. lúc màn hình tắt) thì ACK khi tải lại; phiếu mới thì kêu chuông.
@@ -173,6 +176,8 @@ function Kitchen({ token, device, station, onUnauthorized }: { token: string; de
           ))}
         </main>
       )}
+
+      <DeliveryStrip api={api} station={station} onError={toast.show} />
 
       {soldOutOpen && <SoldOutModal api={api} station={station} onClose={() => setSoldOutOpen(false)} onError={toast.show} />}
       {toast.node}
@@ -253,5 +258,87 @@ function SoldOutModal({ api, station, onClose, onError }: { api: ReturnType<type
         ))}
       </ul>
     </Modal>
+  );
+}
+
+/**
+ * Giao món ở trạm (RD-20, MB-13): món xong chờ robot; robot tới điểm lấy món thì bếp đặt món lên
+ * và bấm xác nhận. Bếp không cần biết robot là mBot hay LuckiBot.
+ */
+function DeliveryStrip({ api, station, onError }: { api: ReturnType<typeof createApi>; station: string; onError: (m: string) => void }) {
+  const qc = useQueryClient();
+  const tasks = useQuery({ queryKey: ['delivery', 'tasks'], queryFn: () => api.get<DeliveryTaskDto[]>('/internal/delivery-tasks'), refetchInterval: 15_000 });
+  const queue = useQuery({ queryKey: ['delivery', 'queue'], queryFn: () => api.get<ReadyGroupDto[]>('/internal/delivery-queue'), refetchInterval: 15_000 });
+  const mine = (tasks.data ?? []).filter(
+    (t) => t.items.some((i) => i.station === station) && ['PENDING', 'ASSIGNING', 'ASSIGNED', 'ROBOT_ACCEPTED', 'GOING_TO_PICKUP', 'ARRIVED_PICKUP', 'FAILED'].includes(t.status),
+  );
+  const waiting = (queue.data ?? [])
+    .map((g) => ({ ...g, items: g.items.filter((i) => i.station === station && i.deliveryMode === 'ROBOT') }))
+    .filter((g) => g.items.length > 0);
+  if (mine.length === 0 && waiting.length === 0) return null;
+
+  async function post(path: string, body: unknown = {}) {
+    try {
+      await api.post(path, body);
+      void qc.invalidateQueries({ queryKey: ['delivery'] });
+    } catch (e) {
+      onError(errorMessage(e));
+    }
+  }
+
+  return (
+    <section className="border-t-4 border-sen-500 bg-white p-4" aria-label="Giao món">
+      <h2 className="mb-3 text-lg font-bold">Giao món</h2>
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        {mine.map((t) => (
+          <article key={t.id} className={`rounded-xl p-3 ring-2 ${t.status === 'ARRIVED_PICKUP' ? 'bg-amber-50 ring-amber-400' : t.status === 'FAILED' ? 'ring-red-300' : 'ring-stone-200'}`}>
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-xl font-bold">Bàn {t.tableCode}</span>
+              <Badge tone={DELIVERY_STATUS_TONE[t.status]}>{DELIVERY_STATUS_LABEL[t.status]}</Badge>
+            </div>
+            <div className="text-sm text-stone-500">
+              {t.code}
+              {t.robotCode && ` · robot ${t.robotCode}`}
+            </div>
+            <ul className="my-2 text-sm">
+              {t.items.map((i) => (
+                <li key={i.id}>
+                  {i.qty}× {i.name}
+                </li>
+              ))}
+            </ul>
+            {t.status === 'ARRIVED_PICKUP' && (
+              <Button size="lg" className="w-full" onClick={() => void post(`/internal/delivery-tasks/${t.id}/confirm-loaded`)}>
+                Đã đặt món lên robot
+              </Button>
+            )}
+            {t.status === 'FAILED' && <p className="text-sm text-red-700">{t.failureReason} — báo phục vụ xử lý.</p>}
+          </article>
+        ))}
+        {waiting.map((g) => (
+          <article key={g.sessionId} className="rounded-xl p-3 ring-1 ring-stone-200">
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-xl font-bold">Bàn {g.tableCode ?? '—'}</span>
+              <Badge tone="warn">Món xong, chờ giao</Badge>
+            </div>
+            <ul className="my-2 text-sm">
+              {g.items.map((i) => (
+                <li key={i.id}>
+                  {i.qty}× {i.name}
+                </li>
+              ))}
+            </ul>
+            <div className="flex gap-2">
+              <Button size="sm" className="flex-1" onClick={() => void post('/internal/delivery-tasks', { orderItemIds: g.items.map((i) => i.id) })}>
+                Giao bằng robot
+              </Button>
+              <Button size="sm" variant="secondary" onClick={() => void post('/internal/delivery-items/staff', { orderItemIds: g.items.map((i) => i.id) })}>
+                Nhân viên mang
+              </Button>
+            </div>
+          </article>
+        ))}
+      </div>
+    </section>
   );
 }

@@ -1,4 +1,4 @@
-import type { OrderItemStatus, RobotState, TableStatus, TripStage } from '@nhs/types';
+import type { DeliveryProblem, DeliveryStatus, OrderItemStatus, RobotState, TableStatus } from '@nhs/types';
 
 export const TABLE_STATUS_LABEL: Record<TableStatus, string> = {
   AVAILABLE: 'Trống',
@@ -46,17 +46,54 @@ export type Tone = 'neutral' | 'info' | 'warn' | 'accent' | 'good' | 'muted' | '
 
 export const TAG_LABEL: Record<string, string> = { chay: 'Chay', cay: 'Cay', 'tre-em': 'Trẻ em', 'dac-biet': 'Đặc biệt' };
 
-export const TRIP_STAGE_LABEL: Record<TripStage, string> = {
-  CREATED: 'Mới tạo',
-  ASSIGNED: 'Robot đang tới bếp',
-  AT_PICKUP: 'Chờ đặt khay',
-  MOVING: 'Đang giao',
-  ARRIVED: 'Đã tới bàn',
+/** Trạng thái Delivery Task (RD-11) cho nhân viên đọc. */
+export const DELIVERY_STATUS_LABEL: Record<DeliveryStatus, string> = {
+  PENDING: 'Chờ robot',
+  ASSIGNING: 'Đang gán robot',
+  ASSIGNED: 'Đã gán robot',
+  ROBOT_ACCEPTED: 'Robot nhận việc',
+  GOING_TO_PICKUP: 'Robot tới bếp',
+  ARRIVED_PICKUP: 'Chờ đặt món lên robot',
+  LOADING: 'Đã đặt món',
+  GOING_TO_TABLE: 'Đang giao',
+  ARRIVED_TABLE: 'Đã tới bàn',
+  WAITING_CUSTOMER: 'Chờ khách nhận',
   DELIVERED: 'Khách đã nhận',
-  RETURNING: 'Đang quay về',
-  DONE: 'Hoàn tất',
-  FAILED: 'Lỗi',
-  CANCELLED: 'Chuyển nhân viên',
+  RETURNING: 'Robot quay về',
+  COMPLETED: 'Hoàn tất',
+  FAILED: 'Lỗi – cần xử lý',
+  CANCELLED: 'Đã hủy',
+  MANUAL_TAKEOVER: 'Nhân viên giao',
+};
+
+export const DELIVERY_STATUS_TONE: Record<DeliveryStatus, Tone> = {
+  PENDING: 'neutral',
+  ASSIGNING: 'neutral',
+  ASSIGNED: 'info',
+  ROBOT_ACCEPTED: 'info',
+  GOING_TO_PICKUP: 'info',
+  ARRIVED_PICKUP: 'warn',
+  LOADING: 'accent',
+  GOING_TO_TABLE: 'accent',
+  ARRIVED_TABLE: 'good',
+  WAITING_CUSTOMER: 'good',
+  DELIVERED: 'good',
+  RETURNING: 'muted',
+  COMPLETED: 'muted',
+  FAILED: 'danger',
+  CANCELLED: 'muted',
+  MANUAL_TAKEOVER: 'muted',
+};
+
+export const DELIVERY_PROBLEM_LABEL: Record<DeliveryProblem, string> = {
+  OBSTACLE: 'Vật cản',
+  OFFLINE: 'Robot mất kết nối',
+  LOW_BATTERY: 'Pin yếu',
+  API_TIMEOUT: 'Robot không nhận lệnh',
+  CUSTOMER_ABSENT: 'Khách chưa nhận',
+  RESTART: 'Máy chủ khởi động lại',
+  STOPPED: 'Dừng khẩn cấp',
+  ROBOT_ERROR: 'Robot báo lỗi',
 };
 
 export const ROBOT_STATE_LABEL: Record<RobotState, string> = {

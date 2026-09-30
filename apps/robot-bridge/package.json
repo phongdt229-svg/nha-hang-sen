@@ -1,0 +1,25 @@
+{
+  "name": "@nhs/robot-bridge",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Robot bridge cho mBot v1 demo: nối cổng serial (USB/Bluetooth) của mBot với API qua MQTT (MB-19)",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "scripts": {
+    "build": "tsup src/index.ts src/main.ts --format cjs --dts --clean",
+    "start": "node dist/main.js",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@nhs/robot-adapters": "workspace:*",
+    "mqtt": "^5.10.0",
+    "serialport": "^12.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "tsup": "^8.3.0",
+    "typescript": "~5.8.3",
+    "vitest": "^3.2.0"
+  }
+}

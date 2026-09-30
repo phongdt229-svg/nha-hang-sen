@@ -79,14 +79,50 @@ async function main() {
       ],
     });
   }
-  // Robot giả lập để trình diễn không cần phần cứng; robot thật thêm trên màn hình điều phối.
-  const robots = [
-    ['R01', 'Sen-01', 'SIMULATED'],
-    ['R02', 'Sen-02', 'SIMULATED'],
-    ['R03', 'Sen-03', 'SIMULATED'],
+  // Vị trí robot (MB-06) theo sa bàn demo A1 (docs/sa-ban-demo-robot-A1.pdf): vạch đôi ở BẾP = vị trí gốc (vạch 0),
+  // vạch 1–4 = BÀN 1–4 (T01–T04), vạch 5 = TRẠM SẠC. mBot chỉ tới được các vạch này; robot giả lập tới được mọi bàn
+  // (Robot Gateway tự sinh vòng chạy giả lập theo danh sách bàn). ORIONSTAR: tên điểm trên bản đồ LuckiBot (chờ vendor xác nhận).
+  const fixed = [
+    { code: 'KITCHEN_PASS_01', kind: 'KITCHEN_PASS', name: 'Điểm lấy món (bếp)', stop: 0, position: 'Bếp', sort: 0 },
+    { code: 'ROBOT_HOME', kind: 'HOME', name: 'Vị trí gốc', stop: 0, position: 'Vị trí chờ', sort: 1 },
+    { code: 'CHARGER_01', kind: 'CHARGER', name: 'Trạm sạc', stop: 5, position: 'Trạm sạc', sort: 999 },
   ] as const;
-  for (const [code, name, vendor] of robots) {
-    await prisma.robot.upsert({ where: { code }, update: {}, create: { code, name, vendor, externalId: code, model: 'Giả lập' } });
+  for (const l of fixed) {
+    const vendorMapping = { MAKEBLOCK: { stop: l.stop }, ORIONSTAR: { position: l.position } };
+    await prisma.robotLocation.upsert({ where: { code: l.code }, update: { vendorMapping }, create: { code: l.code, kind: l.kind, name: l.name, sort: l.sort, vendorMapping } });
+  }
+  const allTables = await prisma.table.findMany({ orderBy: { code: 'asc' } });
+  for (const [i, t] of allTables.entries()) {
+    const n = Number(t.code.replace(/\D/g, ''));
+    const vendorMapping = { ...(n >= 1 && n <= 4 ? { MAKEBLOCK: { stop: n } } : {}), ORIONSTAR: { position: `Bàn ${String(n).padStart(2, '0')}` } };
+    await prisma.robotLocation.upsert({
+      where: { code: `TABLE_${t.code}` },
+      update: { vendorMapping, tableId: t.id },
+      create: { code: `TABLE_${t.code}`, kind: 'TABLE', name: `Bàn ${t.code}`, tableId: t.id, sort: 10 + i, vendorMapping },
+    });
+  }
+
+  // R01 = mBot v1 demo (MB-09) chạy qua robot bridge; R02, R03 = robot giả lập để demo không cần phần cứng.
+  const mbotCaps = {
+    supports_line_following: true,
+    supports_basic_movement: true,
+    supports_stop: true,
+    supports_waypoint_demo: true,
+    supports_return_home: true,
+    supports_obstacle_demo: true,
+    supports_customer_screen: false,
+    supports_auto_docking: false,
+    supports_elevator: false,
+  };
+  const simCaps = { ...mbotCaps, supports_line_following: false, supports_waypoint_demo: false };
+  const robots = [
+    { code: 'R01', name: 'mBot v1', vendor: 'MAKEBLOCK', model: 'MBOT_V1', externalId: 'mbot-01', capabilities: mbotCaps },
+    { code: 'R02', name: 'Sen-02', vendor: 'SIMULATED', model: 'SIMULATOR', externalId: 'R02', capabilities: simCaps },
+    { code: 'R03', name: 'Sen-03', vendor: 'SIMULATED', model: 'SIMULATOR', externalId: 'R03', capabilities: simCaps },
+  ] as const;
+  for (const r of robots) {
+    const data = { name: r.name, vendor: r.vendor, model: r.model, externalId: r.externalId, capabilities: r.capabilities, telemetrySimulated: true };
+    await prisma.robot.upsert({ where: { code: r.code }, update: data, create: { code: r.code, ...data } });
   }
 
   console.log(`Đã tạo dữ liệu mẫu. Tài khoản: ${users.map((u) => u[0]).join(', ')} / mật khẩu: ${password}`);

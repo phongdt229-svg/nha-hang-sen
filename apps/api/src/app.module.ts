@@ -4,7 +4,7 @@ import { AuthModule } from './auth/auth.module';
 import { Public } from './auth/principal';
 import { BillingModule } from './billing/billing.module';
 import { CommonModule } from './common/common.module';
-import { DispatchModule } from './dispatch/dispatch.module';
+import { DeliveryModule } from './delivery/delivery.module';
 import { EInvoiceModule } from './einvoice/einvoice.module';
 import { EventsModule } from './events/events.module';
 import { KitchenModule } from './kitchen/kitchen.module';
@@ -53,7 +53,7 @@ class HealthController {
     EInvoiceModule,
     PrintingModule,
     ObservabilityModule,
-    DispatchModule,
+    DeliveryModule,
   ],
   controllers: [HealthController],
 })

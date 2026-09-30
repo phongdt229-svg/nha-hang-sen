@@ -55,13 +55,39 @@ Có mạng lại: POS → Cảnh báo → "Hóa đơn điện tử cần xử l�
 - Bật lại máy / kiểm tra mạng. Agent cài dạng dịch vụ nên tự khởi động (xem [triển khai](trien-khai-tai-quan.md#print-agent)).
 - Agent báo "Token thiết bị không hợp lệ": xóa file `.print-agent-token`, tạo mã mới trên POS (Cảnh báo → **Ghép print agent**), chạy lại với `PAIRING_CODE`.
 
-## 4. Robot kẹt / hết pin / mất kết nối
+## 4. Robot giao món gặp sự cố
 
-**Dấu hiệu:** cảnh báo "Robot … báo lỗi".
+**Dấu hiệu:** POS → **Robot**, task viền đỏ "Lỗi – cần xử lý"; cảnh báo "Giao món … bị lỗi" hoặc "Robot chờ khách bàn …".
 
-- Hệ thống tự đưa món về hàng chờ, giao cho robot khác hoặc chuyển **nhân viên giao**.
-- Robot kẹt giữa lối: tắt robot, đẩy vào góc an toàn, báo quản lý. Không tháo khay khi robot chưa dừng hẳn.
-- Hết pin: đưa về trạm sạc; đủ pin robot tự nhận chuyến lại.
+Hệ thống **không để món kẹt**: task lỗi chờ nhân viên chọn một trong bốn cách (MB-17):
+
+| Nút | Khi nào dùng |
+|---|---|
+| **Thử lại** | Robot đã ổn (vật cản đã dọn, có mạng lại): gửi lại lệnh cho cùng robot, chạy tiếp từ bước đang dở |
+| **Giao robot khác** | Món **chưa** đặt lên robot, robot hỏng/mất kết nối |
+| **Nhân viên giao** | Món đã ở trên robot, hoặc cần giao ngay: nhân viên lấy món trên robot mang ra |
+| **Hủy** | Món chưa đặt lên robot, không cần robot giao nữa (món về hàng chờ) |
+
+Theo từng lỗi:
+
+- **Vật cản:**
+  - hệ thống tự thử lại 2 lần
+  - vẫn kẹt → dọn lối đi rồi **Thử lại**, hoặc **Nhân viên giao**
+  - không tháo khay khi robot chưa dừng hẳn
+- **Mất kết nối** (robot tắt, hết pin, mất Wi-Fi/Bluetooth, laptop chạy robot bridge tắt):
+  - kiểm tra robot và robot bridge
+  - có lại thì **Thử lại**; chưa có thì **Giao robot khác** hoặc **Nhân viên giao**
+- **Pin yếu:**
+  - robot tự về trạm sạc
+  - món trên robot: **Nhân viên giao**
+  - dưới 30% robot không nhận việc mới
+- **Khách chưa nhận** (robot chờ ở bàn quá 60 giây): nhân viên ra bàn, mời khách lấy món rồi bấm **Xác nhận đã giao**.
+- **Robot chạy sai / nguy hiểm:** bấm **Dừng khẩn** trên thẻ robot, rồi xử lý như task lỗi.
+- **Máy chủ khởi động lại khi robot đang giao:**
+  - robot thật tiếp tục chạy, hệ thống tự đối chiếu
+  - nếu task báo "Máy chủ khởi động lại" thì bấm **Thử lại**
+
+mBot demo trên sa bàn: xem [docs/robot/demo-mbot-v1.md](../robot/demo-mbot-v1.md).
 
 ## 5. Cổng thanh toán lỗi / QR không tự xác nhận
 

@@ -74,13 +74,16 @@ export class ObservabilityService implements OnModuleInit {
     metrics.outboxOldestSeconds.set(health.outboxOldestSeconds);
     if (!health.postgres) return;
 
-    const [tables, robots, printers, printJobs, einvoices] = await Promise.all([
+    const [tables, robots, printers, printJobs, einvoices, deliveries] = await Promise.all([
       this.prisma.table.groupBy({ by: ['status'], _count: true }),
       this.prisma.robot.groupBy({ by: ['state'], _count: true }),
       this.prisma.printer.findMany(),
       this.prisma.printJob.groupBy({ by: ['target'], where: { status: { in: ['QUEUED', 'PRINTING'] } }, _count: true }),
       this.prisma.eInvoice.groupBy({ by: ['status'], where: { status: { in: ['PENDING', 'SENT', 'FAILED'] } }, _count: true }),
+      this.prisma.deliveryTask.groupBy({ by: ['status'], where: { status: { notIn: ['COMPLETED', 'CANCELLED', 'MANUAL_TAKEOVER'] } }, _count: true }),
     ]);
+    metrics.deliveryTasks.reset();
+    for (const d of deliveries) metrics.deliveryTasks.set(d._count, { status: d.status });
     for (const g of [metrics.tablesByStatus, metrics.robotsByState, metrics.printerUp, metrics.printPending, metrics.einvoiceUnissued, metrics.queueJobs]) g.reset();
     for (const t of tables) metrics.tablesByStatus.set(t._count, { status: t.status });
     for (const r of robots) metrics.robotsByState.set(r._count, { state: r.state });
@@ -128,11 +131,12 @@ export class ObservabilityService implements OnModuleInit {
     if (!h.postgres) return alerts;
 
     const cutoff = new Date(Date.now() - staleMs());
-    const [fallback, printers, einvoices, robots] = await Promise.all([
+    const [fallback, printers, einvoices, robots, deliveries] = await Promise.all([
       this.prisma.kitchenTicket.count({ where: { status: 'FALLBACK', order: { session: { status: { not: 'CLOSED' } } } } }),
       this.prisma.printer.findMany({ where: { OR: [{ state: { in: ['OFFLINE', 'PAPER_OUT', 'ERROR'] } }, { lastSeenAt: { lt: cutoff } }] } }),
       this.prisma.eInvoice.count({ where: { status: { in: ['PENDING', 'SENT', 'FAILED'] }, createdAt: { lte: new Date(Date.now() - einvoiceBacklogMs()) } } }),
       this.prisma.robot.findMany({ where: { state: 'ERROR' } }),
+      this.prisma.deliveryTask.findMany({ where: { OR: [{ status: 'FAILED' }, { status: 'WAITING_CUSTOMER', problem: 'CUSTOMER_ABSENT' }] }, include: { robot: true } }),
     ]);
     if (fallback > 0) alerts.push({ key: 'kds-fallback', title: 'Order chưa vào bếp', text: `${fallback} phiếu bếp không được KDS xác nhận. Kiểm tra màn hình bếp và phiếu giấy.` });
     for (const p of printers) {
@@ -141,6 +145,14 @@ export class ObservabilityService implements OnModuleInit {
     }
     if (einvoices > 0) alerts.push({ key: 'einvoice', title: 'Hóa đơn điện tử tồn đọng', text: `${einvoices} hóa đơn chưa phát hành quá hạn, thu ngân cần xử lý.` });
     for (const r of robots) alerts.push({ key: `robot:${r.code}`, title: `Robot ${r.name} báo lỗi`, text: r.error ?? 'Kiểm tra robot và chuyển món cho nhân viên giao.' });
+    // Robot lỗi không được để món kẹt "Ready" vô thời hạn (RD-17): báo nhân viên chọn thử lại / robot khác / giao tay.
+    for (const d of deliveries) {
+      alerts.push(
+        d.status === 'FAILED'
+          ? { key: `delivery:${d.code}`, title: `Giao món ${d.code} bàn ${d.tableCode} bị lỗi`, text: `${d.failureReason ?? d.problem ?? 'Robot gặp sự cố'}. Vào POS → Robot: thử lại, giao robot khác hoặc nhân viên giao.` }
+          : { key: `delivery:${d.code}`, title: `Robot chờ khách bàn ${d.tableCode}`, text: `Robot ${d.robot?.code ?? ''} đã tới nhưng khách chưa nhận món. Nhân viên kiểm tra và xác nhận giúp.` },
+      );
+    }
     return alerts;
   }
 

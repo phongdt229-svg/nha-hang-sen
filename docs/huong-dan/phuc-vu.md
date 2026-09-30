@@ -29,7 +29,9 @@ Tab **Món đã gọi** → **Hủy** ở món → nhập lý do. Món đã nấ
 
 ## Giao món
 
-- Robot mang món tới: khách lấy khay đúng bàn. Robot báo lỗi hoặc không có robot → nhân viên bưng theo phiếu.
+- **Robot mang món tới:** tablet của bàn hiện "Robot đã tới bàn" kèm danh sách món. Khách lấy món rồi bấm **Đã nhận món** (hoặc nút trên robot), robot tự quay về.
+- **Khách vắng / không bấm:** sau 60 giây POS nhắc. Ra bàn mời khách lấy món, rồi trên POS → **Robot** bấm **Xác nhận đã giao**.
+- **Robot báo lỗi:** POS → **Robot** → chọn **Thử lại**, **Giao robot khác** hoặc **Nhân viên giao** (xem [runbook](../van-hanh/runbook.md#4-robot-giao-món-gặp-sự-cố)).
 - Món ra muộn (bếp thấy phiếu quá 15 phút tô đỏ): kiểm tra với bếp.
 
 ## Dọn bàn

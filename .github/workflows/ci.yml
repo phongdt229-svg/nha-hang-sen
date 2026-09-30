@@ -21,6 +21,10 @@ jobs:
       redis:
         image: redis:7-alpine
         ports: ['6379:6379']
+      # Test mBot v1 đầu–cuối (API ↔ MQTT ↔ robot bridge ↔ mBot ảo). Bản 1.6 cho phép kết nối ẩn danh mặc định.
+      mqtt:
+        image: eclipse-mosquitto:1.6
+        ports: ['1883:1883']
     env:
       DATABASE_URL: postgresql://nhs:nhs@localhost:5432/nhs?schema=public
       REDIS_URL: redis://localhost:6379

@@ -1,209 +1,332 @@
-import { RobotCommandError, type RobotAdapter, type RobotEvent, type RobotStatus, type TripCommand } from './adapter';
+import { locationMap, RobotCommandError, type GoToOptions, type LocationMap, type RobotAdapter, type RobotEvent, type RobotMode, type RobotStatus, type SimFault, type Simulatable } from './adapter';
 import { Emitter } from './emitter';
 
-export type SimFault = 'bi_ket' | 'pin_yeu' | 'mat_ket_noi' | 'phuc_hoi';
-
 export interface SimOptions {
-  /** Thời gian đi từ bếp tới bàn (ms), tính theo mã bàn. */
-  travelMs?: (banDich: string) => number;
-  toPickupMs?: number;
-  returnMs?: number;
-  /** Tự xác nhận đã nhận món sau khoảng này nếu khách không bấm (0 = không tự xác nhận). */
-  autoConfirmMs?: number;
+  /** Thời gian đi qua một đoạn giữa hai vạch dừng (ms). */
+  segmentMs?: number;
   tickMs?: number;
-  batteryPerTrip?: number;
+  /** Nhịp trạng thái gửi về (ms) — Robot Gateway dùng để phát hiện mất kết nối. */
+  heartbeatMs?: number;
+  /** Pin tụt mỗi đoạn đường (%). */
+  drainPerSegment?: number;
+  /** Tốc độ sạc (% mỗi giây). */
+  chargePerSecond?: number;
+  /** Tự bấm "đã nhận" sau khoảng này khi tới bàn (0 = chờ khách/nhân viên). */
+  autoConfirmMs?: number;
 }
 
 interface SimRobot {
   id: string;
+  /** Vị trí trên vòng, đơn vị = vạch dừng (có phần lẻ khi đang giữa hai vạch). */
+  pos: number;
   battery: number;
-  location: string;
   online: boolean;
-  tripId: string | null;
-  phase: 'IDLE' | 'TO_PICKUP' | 'AT_PICKUP' | 'MOVING' | 'ARRIVED' | 'RETURNING' | 'CHARGING' | 'STUCK';
-  target: string | null;
-  timers: NodeJS.Timeout[];
+  mode: RobotMode;
+  paused: boolean;
+  taskId: string | null;
+  target: number | null;
+  purpose: GoToOptions['purpose'] | null;
+  /** Robot đang đứng chờ ở bếp (đặt món) hay ở bàn (khách lấy món). */
+  waitingAt: 'PICKUP' | 'TABLE' | null;
+  /** Quãng đường (số đoạn) của lệnh hiện tại, để tính tiến độ. */
+  leg: number;
+  /** Vật cản kẹt hẳn: mọi lần đi tiếp đều bị chặn lại. */
+  blocked: boolean;
+  /** Số lệnh tiếp theo sẽ "quá thời gian" (-1 = mãi mãi). */
+  apiFailures: number;
+  timer: NodeJS.Timeout | null;
 }
 
 /**
- * Robot giả lập chạy trong backend (mục 3.5): dùng khi phát triển và trình diễn không cần phần cứng.
- * Có thể gây lỗi có chủ đích (kẹt, pin yếu, mất kết nối) để kiểm thử luồng fallback.
+ * Robot giả lập chạy trong backend (MB-26 Phase 2): nhiều robot, pin, vật cản, mất kết nối, lỗi API.
+ * Mô phỏng đúng sa bàn demo: một vòng chạy theo chiều kim đồng hồ, dừng ở các vạch.
  */
-export class SimulatedAdapter implements RobotAdapter {
+export class SimulatedAdapter implements RobotAdapter, Simulatable {
   readonly vendor = 'SIMULATED';
   private readonly robots = new Map<string, SimRobot>();
   private readonly events = new Emitter();
   private readonly o: Required<SimOptions>;
+  private map: LocationMap = locationMap({ KITCHEN_PASS_01: 0, ROBOT_HOME: 0 });
+  private hb: NodeJS.Timeout;
 
   constructor(opts: SimOptions = {}) {
     this.o = {
-      travelMs: opts.travelMs ?? ((ban) => 4000 + (Number(ban.replace(/\D/g, '')) % 12) * 400),
-      toPickupMs: opts.toPickupMs ?? 2500,
-      returnMs: opts.returnMs ?? 3000,
+      segmentMs: opts.segmentMs ?? 1500,
+      tickMs: opts.tickMs ?? 200,
+      heartbeatMs: opts.heartbeatMs ?? 2000,
+      drainPerSegment: opts.drainPerSegment ?? 0.5,
+      chargePerSecond: opts.chargePerSecond ?? 5,
       autoConfirmMs: opts.autoConfirmMs ?? 0,
-      tickMs: opts.tickMs ?? 500,
-      batteryPerTrip: opts.batteryPerTrip ?? 3,
     };
+    this.hb = setInterval(() => {
+      for (const r of this.robots.values()) if (r.online) this.emit(r, { type: 'ROBOT_HEARTBEAT' });
+    }, this.o.heartbeatMs);
+    this.hb.unref?.();
   }
 
-  /** Đăng ký robot giả lập (gọi lúc khởi động từ danh sách robot trong DB). */
-  register(id: string, battery = 100) {
-    if (!this.robots.has(id)) this.robots.set(id, { id, battery, location: 'CHO', online: true, tripId: null, phase: 'IDLE', target: null, timers: [] });
+  setLocations(map: LocationMap) {
+    this.map = map;
   }
 
-  private robot(id: string) {
-    const r = this.robots.get(id);
-    if (!r) throw new RobotCommandError(`Robot giả lập ${id} chưa đăng ký`);
-    if (!r.online) throw new RobotCommandError(`Robot ${id} mất kết nối`);
+  private emit(r: SimRobot, e: Omit<RobotEvent, 'at' | 'robotId' | 'battery' | 'batterySimulated'>) {
+    if (!r.online) return;
+    this.events.emit({ robotId: r.id, battery: Math.round(r.battery), batterySimulated: true, location: this.locationOf(r), ...e });
+  }
+
+  private locationOf(r: SimRobot): string | null {
+    const stop = Math.round(r.pos) % this.map.stops;
+    return Math.abs(r.pos - Math.round(r.pos)) < 1e-6 ? (this.map.codeAt(stop) ?? `STOP_${stop}`) : 'MOVING';
+  }
+
+  private get(robotId: string) {
+    const r = this.robots.get(robotId);
+    if (!r) throw new RobotCommandError(`Robot giả lập ${robotId} chưa kết nối`);
     return r;
   }
 
-  private clear(r: SimRobot) {
-    r.timers.forEach(clearTimeout);
-    r.timers = [];
-  }
-
-  private emit(r: SimRobot, e: Omit<RobotEvent, 'at' | 'robotId' | 'battery' | 'location'>) {
-    if (!r.online) return;
-    this.events.emit({ robotId: r.id, battery: Math.round(r.battery), location: r.location, ...e });
-  }
-
-  /** Di chuyển có báo tiến độ để vẽ trên sơ đồ, xong thì gọi `done`. */
-  private travel(r: SimRobot, ms: number, location: string, done: () => void) {
-    const started = Date.now();
-    const tick = () => {
-      if (r.phase === 'STUCK' || !r.online) return;
-      const progress = Math.min(1, (Date.now() - started) / ms);
-      this.emit(r, { type: 'STATUS', tripId: r.tripId ?? undefined, progress });
-      if (progress >= 1) {
-        r.location = location;
-        done();
-      } else r.timers.push(setTimeout(tick, this.o.tickMs));
-    };
-    r.location = 'DI_CHUYEN';
-    r.timers.push(setTimeout(tick, this.o.tickMs));
-  }
-
-  async denDiemLayMon(robotId: string, tripId: string) {
-    const r = this.robot(robotId);
-    if (r.phase !== 'IDLE') throw new RobotCommandError(`Robot ${robotId} đang bận`);
-    r.tripId = tripId;
-    r.phase = 'TO_PICKUP';
-    this.travel(r, this.o.toPickupMs, 'BEP', () => {
-      r.phase = 'AT_PICKUP';
-      this.emit(r, { type: 'AT_PICKUP', tripId });
-    });
-  }
-
-  async giaoMon(robotId: string, trip: TripCommand) {
-    const r = this.robot(robotId);
-    if (r.tripId !== trip.tripId || (r.phase !== 'AT_PICKUP' && r.phase !== 'MOVING')) {
-      throw new RobotCommandError(`Robot ${robotId} chưa sẵn sàng giao chuyến ${trip.tripId}`);
+  /** Lệnh tới robot: mất kết nối hoặc đang giả lập lỗi API thì báo quá thời gian. */
+  private command(robotId: string) {
+    const r = this.get(robotId);
+    if (!r.online) throw new RobotCommandError(`Robot ${robotId} mất kết nối`, true);
+    if (r.apiFailures !== 0) {
+      if (r.apiFailures > 0) r.apiFailures--;
+      throw new RobotCommandError(`Robot ${robotId} không phản hồi lệnh (quá thời gian)`, true);
     }
-    this.clear(r);
-    r.phase = 'MOVING';
-    r.target = trip.banDich;
-    this.emit(r, { type: 'MOVING', tripId: trip.tripId });
-    this.travel(r, this.o.travelMs(trip.banDich), trip.banDich, () => {
-      r.phase = 'ARRIVED';
-      this.emit(r, { type: 'ARRIVED', tripId: trip.tripId });
-      if (this.o.autoConfirmMs > 0) r.timers.push(setTimeout(() => void this.xacNhanDaNhan(r.id, trip.tripId), this.o.autoConfirmMs));
-    });
+    return r;
   }
 
-  async xacNhanDaNhan(robotId: string, tripId: string) {
-    const r = this.robot(robotId);
-    if (r.tripId !== tripId || r.phase !== 'ARRIVED') return;
-    this.clear(r);
-    this.emit(r, { type: 'DELIVERED', tripId });
-    this.goHome(r);
+  private halt(r: SimRobot) {
+    if (r.timer) clearTimeout(r.timer);
+    r.timer = null;
   }
 
-  private goHome(r: SimRobot) {
-    const tripId = r.tripId ?? undefined;
-    r.phase = 'RETURNING';
-    r.battery = Math.max(0, r.battery - this.o.batteryPerTrip);
-    this.emit(r, { type: 'RETURNING', tripId });
-    this.travel(r, this.o.returnMs, 'CHO', () => {
-      r.phase = 'IDLE';
-      r.tripId = null;
-      r.target = null;
-      this.emit(r, { type: 'DONE', tripId });
-      if (r.battery < 20) this.emit(r, { type: 'LOW_BATTERY' });
-    });
-  }
-
-  async huyChuyen(robotId: string, tripId: string) {
-    const r = this.robots.get(robotId);
-    if (!r || r.tripId !== tripId) return;
-    this.clear(r);
-    if (r.phase === 'STUCK') return;
-    this.goHome(r);
-  }
-
-  async diSac(robotId: string) {
-    const r = this.robot(robotId);
-    this.clear(r);
-    r.phase = 'CHARGING';
-    r.location = 'SAC';
-    const charge = () => {
-      r.battery = Math.min(100, r.battery + 5);
-      this.emit(r, { type: 'STATUS' });
-      if (r.battery < 100 && r.phase === 'CHARGING') r.timers.push(setTimeout(charge, 1000));
-      else if (r.phase === 'CHARGING') {
-        r.phase = 'IDLE';
-        r.location = 'CHO';
-        this.emit(r, { type: 'DONE' });
-      }
+  async connect(robotId: string, opts: { battery?: number; location?: string | null } = {}) {
+    if (this.robots.has(robotId)) return;
+    const stop = opts.location ? this.map.stopOf(opts.location) : undefined;
+    const r: SimRobot = {
+      id: robotId,
+      pos: stop ?? 0,
+      battery: opts.battery ?? 100,
+      online: true,
+      mode: 'IDLE',
+      paused: false,
+      taskId: null,
+      target: null,
+      purpose: null,
+      waitingAt: null,
+      leg: 0,
+      blocked: false,
+      apiFailures: 0,
+      timer: null,
     };
-    r.timers.push(setTimeout(charge, 1000));
+    this.robots.set(robotId, r);
+    this.emit(r, { type: 'ROBOT_ONLINE' });
   }
 
-  async layTrangThai(robotId: string): Promise<RobotStatus> {
+  async disconnect(robotId: string) {
     const r = this.robots.get(robotId);
-    if (!r) return { robotId, online: false, battery: 0, location: '?', busy: false, error: 'Chưa đăng ký' };
+    if (r) this.halt(r);
+    this.robots.delete(robotId);
+  }
+
+  async goTo(robotId: string, destination: string, opts: GoToOptions) {
+    const r = this.command(robotId);
+    const target = this.map.stopOf(destination);
+    if (target === undefined) throw new RobotCommandError(`Robot giả lập không biết vị trí ${destination}`);
+    this.halt(r);
+    const newTask = r.taskId !== opts.taskId;
+    r.taskId = opts.taskId;
+    r.target = target;
+    r.purpose = opts.purpose;
+    r.paused = false;
+    r.mode = 'MOVING';
+    r.waitingAt = null;
+    const stops = this.map.stops;
+    r.leg = (target - (((r.pos % stops) + stops) % stops) + stops) % stops;
+    if (newTask && opts.taskId) this.emit(r, { type: 'ROBOT_TASK_ACCEPTED', taskId: opts.taskId });
+    this.step(r);
+  }
+
+  /** Đi tiếp một nhịp trên vòng chạy (một chiều, theo chiều kim đồng hồ). */
+  private step(r: SimRobot) {
+    if (r.target === null || r.paused || r.mode !== 'MOVING') return;
+    const stops = this.map.stops;
+    const here = ((r.pos % stops) + stops) % stops;
+    let remaining = (r.target - here + stops) % stops;
+    if (remaining < 1e-6) return this.arrive(r);
+    if (r.blocked && remaining < stops) {
+      // Vật cản kẹt hẳn: đi được một chút rồi bị chặn.
+      r.mode = 'OBSTACLE';
+      return this.emit(r, { type: 'ROBOT_OBSTACLE', taskId: r.taskId, target: this.map.codeAt(r.target), reason: 'Vật cản trên đường chạy' });
+    }
+    const delta = Math.min(remaining, this.o.tickMs / this.o.segmentMs);
+    const before = Math.floor(r.pos + 1e-9);
+    r.pos = (r.pos + delta) % stops;
+    if (Math.floor(r.pos + 1e-9) !== before || remaining - delta < 1e-6) r.battery = Math.max(0, r.battery - this.o.drainPerSegment);
+    remaining -= delta;
+    this.emit(r, { type: 'ROBOT_LOCATION_CHANGED', taskId: r.taskId, target: this.map.codeAt(r.target), progress: r.leg > 0 ? Math.min(1, 1 - remaining / r.leg) : 1 });
+    if (remaining < 1e-6) {
+      r.pos = r.target;
+      return this.arrive(r);
+    }
+    r.timer = setTimeout(() => this.step(r), this.o.tickMs);
+  }
+
+  private arrive(r: SimRobot) {
+    const location = this.map.codeAt(r.target!) ?? null;
+    const taskId = r.taskId;
+    this.halt(r);
+    switch (r.purpose) {
+      case 'PICKUP':
+        r.mode = 'WAITING';
+        r.waitingAt = 'PICKUP';
+        this.emit(r, { type: 'ROBOT_ARRIVED_PICKUP', taskId, location });
+        break;
+      case 'DELIVERY':
+        r.mode = 'WAITING';
+        r.waitingAt = 'TABLE';
+        this.emit(r, { type: 'ROBOT_ARRIVED_TABLE', taskId, location });
+        if (this.o.autoConfirmMs > 0) r.timer = setTimeout(() => this.emit(r, { type: 'ROBOT_CUSTOMER_CONFIRMED', taskId }), this.o.autoConfirmMs);
+        break;
+      case 'HOME':
+        r.mode = 'IDLE';
+        r.taskId = null;
+        this.emit(r, { type: 'ROBOT_ARRIVED_HOME', taskId, location });
+        if (taskId) this.emit(r, { type: 'ROBOT_TASK_COMPLETED', taskId, location });
+        break;
+      case 'CHARGE':
+        r.mode = 'CHARGING';
+        r.taskId = null;
+        this.emit(r, { type: 'ROBOT_ARRIVED_CHARGER', taskId, location });
+        if (taskId) this.emit(r, { type: 'ROBOT_TASK_COMPLETED', taskId, location });
+        this.charge(r);
+        break;
+    }
+    r.target = null;
+    r.purpose = null;
+  }
+
+  private charge(r: SimRobot) {
+    if (r.mode !== 'CHARGING') return;
+    r.battery = Math.min(100, r.battery + this.o.chargePerSecond);
+    this.emit(r, { type: 'ROBOT_BATTERY_CHANGED' });
+    if (r.battery >= 100) r.mode = 'IDLE';
+    else r.timer = setTimeout(() => this.charge(r), 1000);
+  }
+
+  async stop(robotId: string) {
+    const r = this.command(robotId);
+    this.halt(r);
+    r.mode = 'STOPPED';
+  }
+
+  async pause(robotId: string) {
+    const r = this.command(robotId);
+    this.halt(r);
+    r.paused = true;
+  }
+
+  async resume(robotId: string) {
+    const r = this.command(robotId);
+    if (r.blocked) {
+      r.mode = 'OBSTACLE';
+      return this.emit(r, { type: 'ROBOT_OBSTACLE', taskId: r.taskId, reason: 'Vẫn còn vật cản' });
+    }
+    r.paused = false;
+    if (r.target !== null) {
+      r.mode = 'MOVING';
+      this.step(r);
+    }
+  }
+
+  async returnHome(robotId: string, opts: { taskId?: string | null; charge?: boolean } = {}) {
+    const dest = opts.charge ? 'CHARGER_01' : 'ROBOT_HOME';
+    await this.goTo(robotId, dest, { taskId: opts.taskId ?? this.get(robotId).taskId, purpose: opts.charge ? 'CHARGE' : 'HOME' });
+  }
+
+  async cancelTask(robotId: string, taskId: string) {
+    const r = this.command(robotId);
+    if (r.taskId !== taskId) return;
+    this.halt(r);
+    r.taskId = null;
+    r.target = null;
+    r.purpose = null;
+    r.waitingAt = null;
+    r.mode = 'IDLE';
+  }
+
+  async getStatus(robotId: string): Promise<RobotStatus> {
+    const r = this.robots.get(robotId);
+    if (!r || !r.online) return { robotId, online: false, battery: r ? Math.round(r.battery) : 0, batterySimulated: true, location: r ? this.locationOf(r) : null, mode: 'IDLE', taskId: null, target: null, error: 'Mất kết nối' };
     return {
       robotId,
-      online: r.online,
+      online: true,
       battery: Math.round(r.battery),
-      location: r.location,
-      busy: r.phase !== 'IDLE',
-      error: r.phase === 'STUCK' ? 'Robot bị kẹt' : undefined,
+      batterySimulated: true,
+      location: this.locationOf(r),
+      mode: r.paused ? 'PAUSED' : r.mode,
+      taskId: r.taskId,
+      target: r.target === null ? null : (this.map.codeAt(r.target) ?? null),
+      error: r.mode === 'OBSTACLE' ? 'Vật cản' : null,
     };
   }
 
-  onSuKien(handler: (e: RobotEvent) => void) {
+  async getLocation(robotId: string) {
+    return (await this.getStatus(robotId)).location;
+  }
+
+  async getBattery(robotId: string) {
+    return (await this.getStatus(robotId)).battery;
+  }
+
+  onEvent(handler: (e: RobotEvent) => void) {
     this.events.on(handler);
   }
 
-  /** Gây lỗi có chủ đích để kiểm thử (mục 15: robot kẹt / hết pin / mất kết nối). */
-  inject(robotId: string, fault: SimFault) {
-    const r = this.robots.get(robotId);
-    if (!r) throw new RobotCommandError(`Robot giả lập ${robotId} chưa đăng ký`);
-    const tripId = r.tripId ?? undefined;
-    if (fault === 'bi_ket') {
-      this.clear(r);
-      r.phase = 'STUCK';
-      this.emit(r, { type: 'FAILED', tripId, reason: 'Robot bị kẹt' });
-    } else if (fault === 'pin_yeu') {
-      this.clear(r);
-      r.battery = 5;
-      r.phase = 'STUCK';
-      this.emit(r, { type: 'FAILED', tripId, reason: 'Pin yếu, robot dừng' });
-    } else if (fault === 'mat_ket_noi') {
-      this.clear(r);
-      r.online = false;
-    } else {
-      this.clear(r);
-      r.online = true;
-      r.phase = 'IDLE';
-      r.tripId = null;
-      r.location = 'CHO';
-      this.emit(r, { type: 'DONE' });
+  /** Lỗi giả lập (MB-16) để diễn tập retry, reassign, manual takeover. */
+  async simulate(robotId: string, fault: SimFault) {
+    const r = this.get(robotId);
+    switch (fault) {
+      case 'OBSTACLE':
+      case 'OBSTACLE_PERSISTENT':
+        r.blocked = fault === 'OBSTACLE_PERSISTENT';
+        if (r.mode === 'MOVING') {
+          this.halt(r);
+          r.mode = 'OBSTACLE';
+          this.emit(r, { type: 'ROBOT_OBSTACLE', taskId: r.taskId, reason: 'Vật cản trên đường chạy (giả lập)' });
+        }
+        break;
+      case 'OFFLINE':
+        this.halt(r);
+        r.online = false;
+        break;
+      case 'LOW_BATTERY':
+        r.battery = 12;
+        this.emit(r, { type: 'ROBOT_BATTERY_CHANGED' });
+        break;
+      case 'API_TIMEOUT':
+        r.apiFailures = 1;
+        break;
+      case 'API_TIMEOUT_PERSISTENT':
+        r.apiFailures = -1;
+        break;
+      case 'BUTTON':
+        if (r.mode === 'WAITING' && r.waitingAt === 'TABLE' && r.taskId) this.emit(r, { type: 'ROBOT_CUSTOMER_CONFIRMED', taskId: r.taskId });
+        break;
+      case 'RECOVER': {
+        const wasOffline = !r.online;
+        r.online = true;
+        r.blocked = false;
+        r.apiFailures = 0;
+        if (r.mode === 'OBSTACLE') this.emit(r, { type: 'ROBOT_OBSTACLE_CLEARED', taskId: r.taskId });
+        if (wasOffline) this.emit(r, { type: 'ROBOT_ONLINE' });
+        break;
+      }
     }
   }
 
   async close() {
-    for (const r of this.robots.values()) this.clear(r);
+    clearInterval(this.hb);
+    for (const r of this.robots.values()) this.halt(r);
   }
 }

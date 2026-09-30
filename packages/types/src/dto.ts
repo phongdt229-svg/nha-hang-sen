@@ -1,4 +1,4 @@
-import type { BillStatus, OrderItemStatus, SessionStatus, TableStatus, TicketStatus, TripStage } from './states';
+import type { BillStatus, DeliveryStatus, OrderItemStatus, SessionStatus, TableStatus, TicketStatus } from './states';
 
 export type Role = 'ADMIN' | 'MANAGER' | 'CASHIER' | 'WAITER' | 'KITCHEN' | 'HEAD_CHEF' | 'STOREKEEPER' | 'ACCOUNTANT';
 export type DeviceKind = 'TABLET' | 'KDS' | 'PRINTER';
@@ -160,38 +160,76 @@ export interface BillBuyerDto {
   phone: string | null;
 }
 
-export type RobotVendor = 'SIMULATED' | 'MQTT' | 'ORIONSTAR' | 'MANUAL';
+/** MAKEBLOCK = mBot v1 demo (MB-09); ORIONSTAR = LuckiBot Pro production. */
+export type RobotVendor = 'SIMULATED' | 'MAKEBLOCK' | 'ORIONSTAR' | 'MANUAL';
 export type RobotState = 'IDLE' | 'BUSY' | 'CHARGING' | 'ERROR' | 'OFFLINE' | 'DISABLED';
+
+/** Vấn đề đang chặn task (RD-16, MB-16) — task FAILED hoặc đang chờ xử lý. */
+export type DeliveryProblem = 'OBSTACLE' | 'OFFLINE' | 'LOW_BATTERY' | 'API_TIMEOUT' | 'CUSTOMER_ABSENT' | 'RESTART' | 'STOPPED' | 'ROBOT_ERROR';
 
 export interface RobotDto {
   id: string;
   code: string;
   name: string;
   vendor: RobotVendor;
+  model: string | null;
   state: RobotState;
+  online: boolean;
+  paused: boolean;
   battery: number;
+  /** Pin do phần mềm giả lập vì phần cứng không báo (MB-15). */
+  telemetrySimulated: boolean;
+  /** Mã vị trí robot_locations (KITCHEN_PASS_01, TABLE_T01, ROBOT_HOME…) hoặc MOVING. */
   location: string;
+  capabilities: Record<string, boolean>;
   error: string | null;
   lastSeenAt: string | null;
-  tripId: string | null;
+  taskId: string | null;
 }
 
-export interface TripDto {
+export interface DeliveryTaskDto {
   id: string;
   code: string;
+  status: DeliveryStatus;
+  problem: DeliveryProblem | null;
+  failureReason: string | null;
   robotId: string | null;
   robotCode: string | null;
+  robotModel: string | null;
   sessionId: string;
   tableId: string;
   tableCode: string;
-  stage: TripStage;
-  failReason: string | null;
+  pickupLocation: string;
+  deliveryLocation: string;
+  retryCount: number;
+  confirmedBy: 'CUSTOMER' | 'STAFF' | 'ROBOT_BUTTON' | null;
   createdAt: string;
   assignedAt: string | null;
-  pickedUpAt: string | null;
+  loadedAt: string | null;
   arrivedAt: string | null;
   deliveredAt: string | null;
+  completedAt: string | null;
   items: { id: string; name: string; qty: number; station: string; status: OrderItemStatus }[];
+}
+
+/** Nhật ký từng bước của task (RD-15): TASK_CREATED, ROBOT_ASSIGNED, ITEMS_LOADED, ARRIVED_TABLE… */
+export interface DeliveryEventDto {
+  id: string;
+  taskId: string;
+  type: string;
+  robotId: string | null;
+  location: string | null;
+  payload: Record<string, unknown> | null;
+  createdAt: string;
+}
+
+/** Vị trí trừu tượng robot đi tới (MB-06); mapping riêng cho từng loại robot. */
+export interface RobotLocationDto {
+  code: string;
+  kind: 'KITCHEN_PASS' | 'TABLE' | 'HOME' | 'CHARGER';
+  name: string;
+  tableId: string | null;
+  vendorMapping: Record<string, unknown>;
 }
 
 export interface ReadyGroupDto {
@@ -209,9 +247,11 @@ export interface RobotTelemetry {
   robotId: string;
   code: string;
   battery: number;
+  /** Vị trí gần nhất đã qua và vị trí đang đi tới (để vẽ trên sa bàn). */
   location: string;
+  target: string | null;
   progress: number | null;
-  tripCode: string | null;
+  taskCode: string | null;
   tableCode: string | null;
-  stage: TripStage | null;
+  status: DeliveryStatus | null;
 }

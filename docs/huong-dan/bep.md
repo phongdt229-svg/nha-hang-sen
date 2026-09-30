@@ -9,6 +9,14 @@ Mỗi trạm (bếp nóng, bếp lạnh, quầy bar) có một màn hình. Lần
 3. Bắt đầu làm món → **Nấu**. Làm xong → **Xong** (robot hoặc nhân viên sẽ mang ra).
 4. Phiếu quá **15 phút** viền đỏ: ưu tiên.
 
+## Giao món bằng robot
+
+Món xong hiện ở dải **Giao món** cuối màn hình:
+
+- **Món xong, chờ giao:** robot sẽ tự tới. Cần giao ngay thì bấm **Giao bằng robot**; không dùng robot thì bấm **Nhân viên mang**.
+- **Chờ đặt món lên robot** (viền vàng): robot đã tới điểm lấy món. Đặt đủ món lên khay rồi bấm **Đã đặt món lên robot**. Robot chỉ chạy ra bàn sau khi bấm nút này.
+- Task báo lỗi: báo phục vụ/quản lý xử lý trên POS.
+
 ## Hết món
 
 **Báo hết món** → bấm **Báo hết** ở món đó. Tablet khách khóa món ngay. Có hàng lại → **Bán lại**.

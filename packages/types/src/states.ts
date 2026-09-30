@@ -29,8 +29,56 @@ export type BillStatus = (typeof BILL_STATUSES)[number];
 export const SESSION_STATUSES = ['OPEN', 'PAYMENT', 'CLOSED'] as const;
 export type SessionStatus = (typeof SESSION_STATUSES)[number];
 
-export const TRIP_STAGES = ['CREATED', 'ASSIGNED', 'AT_PICKUP', 'MOVING', 'ARRIVED', 'DELIVERED', 'RETURNING', 'DONE', 'FAILED', 'CANCELLED'] as const;
-export type TripStage = (typeof TRIP_STAGES)[number];
+/**
+ * Trạng thái Delivery Task (RD-02, RD-11, MB-11) — dùng chung cho mọi robot (mBot demo, LuckiBot Pro),
+ * tách riêng khỏi trạng thái order.
+ */
+export const DELIVERY_STATUSES = [
+  'PENDING',
+  'ASSIGNING',
+  'ASSIGNED',
+  'ROBOT_ACCEPTED',
+  'GOING_TO_PICKUP',
+  'ARRIVED_PICKUP',
+  'LOADING',
+  'GOING_TO_TABLE',
+  'ARRIVED_TABLE',
+  'WAITING_CUSTOMER',
+  'DELIVERED',
+  'RETURNING',
+  'COMPLETED',
+  'FAILED',
+  'CANCELLED',
+  'MANUAL_TAKEOVER',
+] as const;
+export type DeliveryStatus = (typeof DELIVERY_STATUSES)[number];
+
+/** Task còn giữ món và robot (chưa kết thúc, chưa giao xong). */
+export const DELIVERY_ACTIVE: readonly DeliveryStatus[] = [
+  'PENDING',
+  'ASSIGNING',
+  'ASSIGNED',
+  'ROBOT_ACCEPTED',
+  'GOING_TO_PICKUP',
+  'ARRIVED_PICKUP',
+  'LOADING',
+  'GOING_TO_TABLE',
+  'ARRIVED_TABLE',
+  'WAITING_CUSTOMER',
+  'FAILED',
+];
+
+/** Các bước robot đang thực hiện nhiệm vụ — được phép retry về lại sau khi FAILED. */
+export const DELIVERY_RESUMABLE: readonly DeliveryStatus[] = [
+  'ASSIGNED',
+  'ROBOT_ACCEPTED',
+  'GOING_TO_PICKUP',
+  'ARRIVED_PICKUP',
+  'LOADING',
+  'GOING_TO_TABLE',
+  'ARRIVED_TABLE',
+  'WAITING_CUSTOMER',
+];
 
 type TransitionMap<S extends string> = Record<S, readonly S[]>;
 
@@ -64,18 +112,30 @@ export const BILL_TRANSITIONS: TransitionMap<BillStatus> = {
   VOID: [],
 };
 
-/** Chuyến giao robot (mục 5.3). */
-export const TRIP_TRANSITIONS: TransitionMap<TripStage> = {
-  CREATED: ['ASSIGNED', 'CANCELLED'],
-  ASSIGNED: ['AT_PICKUP', 'MOVING', 'FAILED', 'CANCELLED'],
-  AT_PICKUP: ['MOVING', 'FAILED', 'CANCELLED'],
-  MOVING: ['ARRIVED', 'FAILED', 'CANCELLED'],
-  ARRIVED: ['DELIVERED', 'FAILED', 'CANCELLED'],
-  DELIVERED: ['RETURNING', 'DONE'],
-  RETURNING: ['DONE'],
-  DONE: [],
-  FAILED: [],
+const TAKEOVER = ['FAILED', 'CANCELLED', 'MANUAL_TAKEOVER'] as const;
+
+/**
+ * Delivery Task (RD-11). Nhánh lỗi: FAILED chờ nhân viên quyết định — retry (về lại bước đang dở),
+ * reassign (về PENDING để giao robot khác), giao tay (MANUAL_TAKEOVER) hoặc hủy (CANCELLED).
+ * ARRIVED_TABLE không được tự chuyển DELIVERED khi chưa có xác nhận (MB-14): chỉ đi qua WAITING_CUSTOMER.
+ */
+export const DELIVERY_TRANSITIONS: TransitionMap<DeliveryStatus> = {
+  PENDING: ['ASSIGNING', 'ASSIGNED', 'CANCELLED', 'MANUAL_TAKEOVER'],
+  ASSIGNING: ['ASSIGNED', 'PENDING', ...TAKEOVER],
+  ASSIGNED: ['ROBOT_ACCEPTED', 'GOING_TO_PICKUP', 'ARRIVED_PICKUP', 'PENDING', ...TAKEOVER],
+  ROBOT_ACCEPTED: ['GOING_TO_PICKUP', 'ARRIVED_PICKUP', ...TAKEOVER],
+  GOING_TO_PICKUP: ['ARRIVED_PICKUP', ...TAKEOVER],
+  ARRIVED_PICKUP: ['LOADING', 'GOING_TO_TABLE', ...TAKEOVER],
+  LOADING: ['GOING_TO_TABLE', ...TAKEOVER],
+  GOING_TO_TABLE: ['ARRIVED_TABLE', ...TAKEOVER],
+  ARRIVED_TABLE: ['WAITING_CUSTOMER', 'FAILED', 'MANUAL_TAKEOVER'],
+  WAITING_CUSTOMER: ['DELIVERED', 'FAILED', 'MANUAL_TAKEOVER'],
+  DELIVERED: ['RETURNING', 'COMPLETED'],
+  RETURNING: ['COMPLETED'],
+  COMPLETED: [],
+  FAILED: ['PENDING', ...DELIVERY_RESUMABLE, 'CANCELLED', 'MANUAL_TAKEOVER'],
   CANCELLED: [],
+  MANUAL_TAKEOVER: [],
 };
 
 export function canTransition<S extends string>(map: TransitionMap<S>, from: S, to: S): boolean {

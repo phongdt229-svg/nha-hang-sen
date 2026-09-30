@@ -24,9 +24,9 @@ export default async function globalSetup() {
   await db.$disconnect();
   execSync('npx ts-node -P tsconfig.test.json prisma/seed.ts', { cwd, env, stdio: 'ignore' });
 
-  // Quy mô 40 bàn như mục 17.2, để các file test không tranh bàn trống của nhau.
+  // 60 bàn (hơn quy mô 40 bàn của mục 17.2) để các file test, kể cả test giao món bằng robot, không tranh bàn trống của nhau.
   const seeded = new PrismaClient({ datasourceUrl: TEST_ENV.DATABASE_URL });
-  for (let i = 13; i <= 40; i++) {
+  for (let i = 13; i <= 60; i++) {
     await seeded.table.create({ data: { code: `T${i}`, seats: 4, zone: 'Test' } });
   }
   await seeded.$disconnect();

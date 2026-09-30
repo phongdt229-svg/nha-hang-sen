@@ -37,9 +37,10 @@ export function App() {
     setToken(null);
   }, []);
 
-  if (!token || !device) {
+  if (!token || !device?.tableId) {
     return (
       <PairScreen
+        kind="TABLET"
         subtitle="Ghép tablet với bàn"
         onPaired={(t, d) => {
           storage.set(TOKEN_KEY, t);

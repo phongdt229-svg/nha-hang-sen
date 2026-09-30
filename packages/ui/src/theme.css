@@ -22,3 +22,43 @@
 @media print {
   .no-print { display: none !important; }
 }
+
+/* Hướng dẫn sử dụng (HD-03): nội dung Markdown từ docs/ hiển thị trong app. */
+@layer components {
+  .guide-md { @apply leading-relaxed text-stone-800; }
+  .guide-md h1 { @apply mb-4 text-2xl font-bold text-stone-900; }
+  .guide-md h2 { @apply mt-8 mb-3 scroll-mt-4 border-b border-stone-200 pb-1 text-xl font-bold text-stone-900; }
+  .guide-md h3 { @apply mt-6 mb-2 scroll-mt-4 text-lg font-semibold; }
+  .guide-md h1 + h2, .guide-md > h2:first-child { @apply mt-2; }
+  .guide-md p { @apply my-3; }
+  .guide-md ul { @apply my-3 list-disc space-y-1 pl-6; }
+  .guide-md ol { @apply my-3 list-decimal space-y-1 pl-6; }
+  .guide-md li > ul, .guide-md li > ol { @apply my-1; }
+  .guide-md strong { @apply font-semibold text-stone-900; }
+  .guide-md a { @apply font-medium text-sen-700 underline underline-offset-2; }
+  .guide-md code { @apply rounded bg-stone-100 px-1.5 py-0.5 font-mono text-[0.85em]; }
+  .guide-md pre { @apply my-3 overflow-x-auto rounded-xl bg-stone-900 p-4 text-sm text-stone-100; }
+  .guide-md pre code { @apply bg-transparent p-0 text-inherit; }
+  .guide-md blockquote { @apply my-3 rounded-r-xl border-l-4 border-sen-400 bg-sen-50 px-4 py-2 text-stone-700; }
+  .guide-md hr { @apply my-6 border-stone-200; }
+  .guide-md .guide-table { @apply my-4 overflow-x-auto; }
+  .guide-md table { @apply w-full border-collapse text-sm; }
+  .guide-md th { @apply border-b-2 border-stone-200 bg-stone-50 px-3 py-2 text-left font-semibold; }
+  .guide-md td { @apply border-b border-stone-100 px-3 py-2 align-top; }
+  .guide-flash { animation: guide-flash 1.6s ease-out; }
+}
+
+@keyframes guide-flash {
+  0%, 40% { background-color: var(--color-sen-100); }
+  100% { background-color: transparent; }
+}
+
+/* In hướng dẫn: chỉ in nội dung đang xem, bỏ màn hình phía sau. */
+@media print {
+  body:has(.guide-overlay) * { visibility: hidden; }
+  body:has(.guide-overlay), body:has(.guide-overlay) #root { height: auto; }
+  .guide-overlay { position: absolute; inset: 0 auto auto 0; width: 100%; height: auto; }
+  .guide-overlay, .guide-overlay * { overflow: visible !important; }
+  .guide-overlay .guide-md, .guide-overlay .guide-md * { visibility: visible; }
+  .guide-overlay .guide-md { position: absolute; inset: 0 auto auto 0; width: 100%; box-shadow: none; }
+}

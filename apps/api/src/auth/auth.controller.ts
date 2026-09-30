@@ -16,7 +16,14 @@ const PairingCodeSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('PRINTER') }),
 ]);
 
-const PairSchema = z.object({ code: z.string().length(6), name: z.string().min(1).max(60) });
+// kind: loại thiết bị đang ghép; mã của loại khác bị từ chối và không bị tiêu (dán nhầm mã KDS vào tablet).
+const PairSchema = z.object({
+  code: z.string().length(6),
+  name: z.string().min(1).max(60),
+  kind: z.enum(['TABLET', 'KDS', 'PRINTER']).optional(),
+});
+
+const KIND_LABEL = { TABLET: 'tablet bàn', KDS: 'màn hình bếp', PRINTER: 'print agent' } as const;
 
 const PAIRING_TTL_MS = 10 * 60 * 1000;
 
@@ -57,8 +64,14 @@ export class AuthController {
   @Post('devices/pair')
   async pair(@Body(new ZodPipe(PairSchema)) body: z.infer<typeof PairSchema>) {
     const device = await this.prisma.$transaction(async (tx) => {
+      if (body.kind) {
+        const pc = await tx.pairingCode.findUnique({ where: { code: body.code } });
+        if (pc && !pc.usedAt && pc.expiresAt > new Date() && pc.kind !== body.kind) {
+          throw new BadRequestException(`Đây là mã ghép ${KIND_LABEL[pc.kind]}, không dùng được cho ${KIND_LABEL[body.kind]}`);
+        }
+      }
       const used = await tx.pairingCode.updateMany({
-        where: { code: body.code, usedAt: null, expiresAt: { gt: new Date() } },
+        where: { code: body.code, usedAt: null, expiresAt: { gt: new Date() }, ...(body.kind && { kind: body.kind }) },
         data: { usedAt: new Date() },
       });
       if (used.count === 0) throw new BadRequestException('Mã ghép không đúng hoặc đã hết hạn');

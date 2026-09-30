@@ -63,4 +63,15 @@ describe('Tài khoản & thiết bị', () => {
     expect((await h.call('GET', '/menu', paired.token)).status).toBe(401);
     expect((await h.call('POST', `/devices/${paired.device.id}/revoke`, manager)).status).toBe(409);
   });
+
+  it('nhập mã ghép màn hình bếp vào tablet → bị từ chối, mã vẫn dùng được cho KDS', async () => {
+    const { code } = (await h.call('POST', '/devices/pairing-codes', manager, { kind: 'KDS', station: 'BEP_NONG' })).body;
+    const wrong = await h.call('POST', '/devices/pair', undefined, { code, name: 'Tablet', kind: 'TABLET' });
+    expect(wrong.status).toBe(400);
+    expect(wrong.body.message).toContain('mã ghép màn hình bếp');
+
+    const kds = await h.call('POST', '/devices/pair', undefined, { code, name: 'Bếp', kind: 'KDS' });
+    expect(kds.status).toBe(201);
+    expect(kds.body.device).toMatchObject({ kind: 'KDS', station: 'BEP_NONG' });
+  });
 });

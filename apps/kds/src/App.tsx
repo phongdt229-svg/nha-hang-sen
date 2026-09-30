@@ -39,6 +39,7 @@ export function App() {
   if (!token || !device?.station) {
     return (
       <PairScreen
+        kind="KDS"
         subtitle="Ghép màn hình bếp với trạm"
         onPaired={(t, d) => {
           storage.set(TOKEN_KEY, t);

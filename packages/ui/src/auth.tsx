@@ -55,7 +55,15 @@ export interface PairedDevice {
 }
 
 /** Ghép thiết bị bằng mã 6 số do nhân viên tạo trên POS. */
-export function PairScreen({ subtitle, onPaired }: { subtitle: string; onPaired: (token: string, device: PairedDevice) => void }) {
+export function PairScreen({
+  subtitle,
+  kind,
+  onPaired,
+}: {
+  subtitle: string;
+  kind: 'TABLET' | 'KDS';
+  onPaired: (token: string, device: PairedDevice) => void;
+}) {
   const [code, setCode] = useState('');
   const [name, setName] = useState('');
   const [error, setError] = useState<string | null>(null);
@@ -66,7 +74,7 @@ export function PairScreen({ subtitle, onPaired }: { subtitle: string; onPaired:
     setBusy(true);
     setError(null);
     try {
-      const r = await publicApi.post<{ token: string; device: PairedDevice }>('/devices/pair', { code, name: name || 'Thiết bị' });
+      const r = await publicApi.post<{ token: string; device: PairedDevice }>('/devices/pair', { code, name: name || 'Thiết bị', kind });
       onPaired(r.token, r.device);
     } catch (err) {
       setError(errorMessage(err));

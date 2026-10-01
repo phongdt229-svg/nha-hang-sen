@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type MouseEvent, type ReactNode } from 'react';
+import { storage } from '../storage';
 import { GUIDES, type GuideId } from './content';
-import { renderGuide, search, toc } from './markdown';
+import { renderGuide, search, taskCount, toc } from './markdown';
 
 /** Trang tương tác chèn vào danh sách hướng dẫn (ví dụ "Chạy thử" theo dõi trực tiếp trên POS). */
 export interface GuideExtra {
@@ -16,7 +17,8 @@ export interface GuideTarget {
 
 /**
  * Màn hình hướng dẫn sử dụng toàn trang (HD-03): danh sách hướng dẫn, tìm kiếm không dấu,
- * mục lục, link giữa các hướng dẫn, in trang đang xem.
+ * mục lục, link giữa các hướng dẫn, in trang đang xem. Bài tập "- [ ]" bấm đánh dấu được,
+ * tiến độ nhớ theo `progressKey` (tài khoản / thiết bị) trên máy này (HD-10).
  */
 export function GuideView({
   docs,
@@ -24,12 +26,14 @@ export function GuideView({
   extras = [],
   onClose,
   title = 'Hướng dẫn sử dụng',
+  progressKey = 'default',
 }: {
   docs: GuideId[];
   initial?: GuideTarget;
   extras?: GuideExtra[];
   onClose: () => void;
   title?: string;
+  progressKey?: string;
 }) {
   const ids = [...extras.map((e) => e.id), ...docs];
   const [target, setTarget] = useState<GuideTarget>(() =>
@@ -43,6 +47,43 @@ export function GuideView({
   const html = useMemo(() => (guide ? renderGuide(guide) : ''), [guide]);
   const hits = useMemo(() => search(query, docs.map((d) => GUIDES[d])), [query, docs]);
   const single = ids.length === 1;
+  const tasks = guide ? taskCount(guide) : 0;
+  const storeKey = `nhs.guide.progress.${progressKey}`;
+  const [progress, setProgress] = useState<Record<string, number[]>>({});
+  const doneTasks = guide ? (progress[guide.id] ?? []).filter((i) => i < tasks) : [];
+
+  useEffect(() => {
+    try {
+      setProgress(JSON.parse(storage.get(storeKey) ?? '{}'));
+    } catch {
+      setProgress({});
+    }
+  }, [storeKey]);
+
+  function saveProgress(next: Record<string, number[]>) {
+    setProgress(next);
+    storage.set(storeKey, JSON.stringify(next));
+  }
+
+  // Ô đánh dấu bài tập: marked vẽ ra ô bị khóa → mở khóa và điền theo tiến độ đã lưu.
+  useEffect(() => {
+    const box = main.current;
+    if (!box || !guide) return;
+    box.querySelectorAll<HTMLInputElement>('.guide-md input[type="checkbox"]').forEach((input, i) => {
+      input.disabled = false;
+      input.dataset.task = String(i);
+      input.checked = doneTasks.includes(i);
+      input.closest('li')?.classList.toggle('guide-task-done', input.checked);
+    });
+  }, [html, guide, doneTasks]);
+
+  // Ô đánh dấu nằm trong HTML dựng sẵn (không phải phần tử React) nên onChange không tới; bắt qua click.
+  function onTaskClick(input: HTMLInputElement) {
+    if (!guide || input.dataset.task === undefined) return;
+    const i = Number(input.dataset.task);
+    const rest = doneTasks.filter((x) => x !== i);
+    saveProgress({ ...progress, [guide.id]: input.checked ? [...rest, i] : rest });
+  }
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => e.key === 'Escape' && onClose();
@@ -71,7 +112,9 @@ export function GuideView({
   }
 
   function onArticleClick(e: MouseEvent) {
-    const a = (e.target as HTMLElement).closest('a[data-guide]');
+    const el = e.target as HTMLElement;
+    if (el instanceof HTMLInputElement && el.type === 'checkbox') return onTaskClick(el);
+    const a = el.closest('a[data-guide]');
     if (!a) return;
     e.preventDefault();
     const doc = a.getAttribute('data-guide')!;
@@ -161,7 +204,32 @@ export function GuideView({
                       ))}
                     </div>
                   )}
-                  <article className="guide-md rounded-2xl bg-white p-5 ring-1 ring-stone-200 sm:p-7" onClick={onArticleClick} dangerouslySetInnerHTML={{ __html: html }} />
+                  {tasks > 0 && (
+                    <div className="no-print mb-4 rounded-2xl bg-white p-4 ring-1 ring-stone-200">
+                      <div className="flex items-center justify-between gap-3 text-sm">
+                        <span className="font-semibold">
+                          Đã làm {doneTasks.length}/{tasks} bài tập
+                          {doneTasks.length === tasks && <span className="text-la-600"> · hoàn thành</span>}
+                        </span>
+                        {doneTasks.length > 0 && (
+                          <button
+                            className="text-stone-500 underline-offset-2 hover:underline"
+                            onClick={() => window.confirm('Bỏ đánh dấu mọi bài tập của trang này?') && saveProgress({ ...progress, [guide.id]: [] })}
+                          >
+                            Làm lại từ đầu
+                          </button>
+                        )}
+                      </div>
+                      <div className="mt-2 h-2 overflow-hidden rounded-full bg-stone-100">
+                        <div className="h-full bg-la-500 transition-all" style={{ width: `${(doneTasks.length / tasks) * 100}%` }} />
+                      </div>
+                    </div>
+                  )}
+                  <article
+                    className="guide-md rounded-2xl bg-white p-5 ring-1 ring-stone-200 sm:p-7"
+                    onClick={onArticleClick}
+                    dangerouslySetInnerHTML={{ __html: html }}
+                  />
                 </>
               )
             )}

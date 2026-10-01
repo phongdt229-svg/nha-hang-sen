@@ -3,4 +3,12 @@
 **/.turbo
 **/.env
 .git
-docs
+docs/*
+# Hướng dẫn sử dụng trong app đọc các file này lúc build (packages/ui/src/guide/content.ts)
+!docs/huong-dan
+!docs/van-hanh
+docs/van-hanh/*
+!docs/van-hanh/runbook.md
+!docs/robot
+docs/robot/*
+!docs/robot/demo-mbot-v1.md

@@ -8,6 +8,8 @@ import {
   errorMessage,
   formatTime,
   formatVnd,
+  GuideView,
+  HelpButton,
   ITEM_STATUS_LABEL,
   ITEM_STATUS_TONE,
   Logo,
@@ -60,6 +62,7 @@ function Tablet({ token, device, onUnauthorized }: { token: string; device: Pair
   const toast = useToast();
   const [tab, setTab] = useState<'menu' | 'orders'>('menu');
   const [cartOpen, setCartOpen] = useState(false);
+  const [guideOpen, setGuideOpen] = useState(false);
 
   const session = useQuery({ queryKey: ['session'], queryFn: () => api.get<SessionDto | null>('/devices/me/session') });
   const menu = useQuery({ queryKey: ['menu'], queryFn: () => api.get<{ categories: MenuCategoryDto[]; items: MenuItemDto[] }>('/menu') });
@@ -122,7 +125,10 @@ function Tablet({ token, device, onUnauthorized }: { token: string; device: Pair
             </button>
           ))}
         </nav>
-        <ConnectionDot connected={connected} />
+        <div className="flex items-center gap-1">
+          <HelpButton compact onClick={() => setGuideOpen(true)} />
+          <ConnectionDot connected={connected} />
+        </div>
       </header>
 
       {locked && (
@@ -158,6 +164,7 @@ function Tablet({ token, device, onUnauthorized }: { token: string; device: Pair
           onSoldOut={() => void qc.invalidateQueries({ queryKey: ['menu'] })}
         />
       )}
+      {guideOpen && <GuideView docs={['khach-hang']} title="Hướng dẫn gọi món" onClose={() => setGuideOpen(false)} />}
       {toast.node}
     </div>
   );

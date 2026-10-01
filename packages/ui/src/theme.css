@@ -62,3 +62,18 @@
   .guide-overlay .guide-md, .guide-overlay .guide-md * { visibility: visible; }
   .guide-overlay .guide-md { position: absolute; inset: 0 auto auto 0; width: 100%; box-shadow: none; }
 }
+
+/* Bài tập đào tạo (HD-10) và đáp án câu hỏi kiểm tra. */
+@layer components {
+  .guide-md li.guide-task { @apply list-none rounded-lg; }
+  .guide-md ul:has(> li.guide-task) { @apply pl-0; }
+  .guide-md li.guide-task > label { @apply flex cursor-pointer items-start gap-2.5 px-2 py-1.5; }
+  .guide-md li.guide-task:hover { @apply bg-stone-50; }
+  .guide-md li.guide-task input { @apply mt-1 h-4.5 w-4.5 shrink-0 cursor-pointer accent-la-600; }
+  .guide-md li.guide-task-done { @apply text-stone-400 line-through decoration-stone-300; }
+  .guide-md li.guide-task-done strong { @apply text-stone-400; }
+  .guide-md details { @apply my-2 rounded-xl bg-stone-50 px-4 py-2 ring-1 ring-stone-200; }
+  .guide-md details summary { @apply cursor-pointer text-sm font-semibold text-sen-700; }
+  .guide-md details[open] summary { @apply mb-1; }
+  .guide-md details > p { @apply my-2; }
+}

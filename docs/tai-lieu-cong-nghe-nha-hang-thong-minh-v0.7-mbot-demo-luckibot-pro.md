@@ -4668,6 +4668,140 @@ Common Business Flow:
 Order → KDS → Delivery Task → Robot Gateway → Delivery Confirmation
 ```
 
+# BỔ SUNG v0.8 — HƯỚNG DẪN SỬ DỤNG TRONG ỨNG DỤNG
+
+Mục tiêu: nhân viên mới tự học và tự tra cứu ngay trên màn hình đang dùng; quản lý chạy thử toàn bộ luồng trước giờ mở bán mà không cần người kỹ thuật đứng cạnh.
+
+## HD-01. Phạm vi
+
+| Màn hình | Người dùng | Nội dung hướng dẫn |
+|---|---|---|
+| POS | Thu ngân, phục vụ, quản lý, kế toán, chủ quán | Mọi hướng dẫn nhân viên, xử lý sự cố, robot demo, **chạy thử trực tiếp** |
+| KDS | Bếp | Hướng dẫn bếp, chạy thử toàn bộ luồng |
+| Tablet | Khách | Hướng dẫn gọi món (một trang, không có danh sách) |
+
+## HD-02. Một nguồn nội dung
+
+- Nội dung là các file Markdown trong `docs/` — **không chép tay vào code**:
+  - `docs/huong-dan/*.md` (theo vai trò, chạy thử, khách gọi món)
+  - `docs/van-hanh/runbook.md`
+  - `docs/robot/demo-mbot-v1.md`
+- App nhúng file lúc build (`?raw` của Vite). Sửa file `.md` → bản build sau cập nhật theo; file in dán tại quầy và trong app luôn giống nhau.
+- Link giữa các file (`../van-hanh/runbook.md#4-…`) thành link trong app. Link tới file không có trong app hiện thành chữ thường.
+- Docker build: `.dockerignore` chỉ mở đúng các file trên trong `docs/`.
+
+## HD-03. Màn hình hướng dẫn
+
+Nút **Hướng dẫn** ở thanh trên của mỗi màn hình mở màn hình hướng dẫn toàn trang:
+
+- danh sách hướng dẫn (điện thoại: ô chọn)
+- **tìm không dấu** theo từng mục "##" ("het giay" ra "Máy in hết giấy"); cụm từ liền nhau và khớp ở tiêu đề xếp trước
+- mục lục đầu trang, bấm để cuộn tới mục
+- **In trang này**: chỉ in nội dung hướng dẫn, không in màn hình phía sau
+- Esc hoặc × để đóng; màn hình đang làm dở phía sau giữ nguyên
+
+## HD-04. Hướng dẫn theo ngữ cảnh
+
+POS mở đúng hướng dẫn theo **mục đang xem** và **vai trò** đăng nhập:
+
+| Mục POS đang xem | Mở tới |
+|---|---|
+| Sơ đồ bàn, Tổng quan | Hướng dẫn của vai trò (phục vụ / thu ngân / quản lý / kế toán) |
+| Cảnh báo | Sổ tay xử lý sự cố |
+| Robot | Phục vụ → Giao món |
+| Ca làm | Thu ngân → Đầu ca (thu ngân); Quản lý → Cuối ngày |
+| Báo cáo | Kế toán (kế toán); Quản lý → Báo cáo |
+| Thiết bị | Quản lý → Thao tác cần quyền quản lý |
+
+Mục được mở nháy sáng để dễ thấy.
+
+## HD-05. Chạy thử trực tiếp (POS)
+
+Trong màn hình hướng dẫn → **Chạy thử (theo dõi trực tiếp)** → chọn bàn → **Bắt đầu chạy thử**. Bảng bước nổi ở góc POS, giữ nguyên khi chuyển mục; thu nhỏ được; nhớ qua tải lại trang.
+
+| # | Bước | Xong khi | Ở đâu |
+|---|---|---|---|
+| 1 | Mở bàn | Bàn có phiên | Sơ đồ bàn |
+| 2 | Gọi món | Phiên có món (không tính món hủy) | Tablet / Gọi món hộ |
+| 3 | Bếp nhận phiếu | Có món `KDS_ACK` trở đi | Màn hình bếp |
+| 4 | Bếp nấu xong | Có món `READY` trở đi | Màn hình bếp |
+| 5 | Robot nhận nhiệm vụ | Delivery Task có robot | Robot |
+| 6 | Đặt món lên robot | Task đã qua `LOADING` | Robot / màn hình bếp |
+| 7 | Giao tới khách | Task `DELIVERED` / `RETURNING` / `COMPLETED` | Tablet / Robot |
+| 8 | Thanh toán | Mọi bill (trừ bill gốc đã tách) `PAID`, hoặc phiên đóng | Sơ đồ bàn → Bill & thanh toán |
+| 9 | Dọn bàn | Phiên đóng và bàn hết "Cần dọn" | Sơ đồ bàn |
+
+Quy tắc:
+- Trạng thái **tính từ dữ liệu thật**: phiên, order, bill, delivery task. Không có trạng thái riêng trên server, không ghi thêm dữ liệu.
+- Cập nhật theo sự kiện realtime, kèm hỏi lại mỗi 3 giây.
+- Bước sau đã xong thì bước trước coi như xong; bước không làm thì ghi "bỏ qua" (ví dụ nhân viên mang món → bỏ qua các bước robot).
+- Bước hiện tại hiện: màn hình cần dùng, việc cần bấm, nút **Mở mục …** trên POS. Task robot lỗi → nhắc cách xử lý (MB-17).
+- Nhớ phiên ngay khi bàn được mở, để vẫn theo dõi được sau khi thanh toán (bàn không còn phiên).
+
+## HD-06. Thành phần mã nguồn
+
+| Thành phần | Vị trí |
+|---|---|
+| Danh sách hướng dẫn, hướng dẫn theo vai trò | `packages/ui/src/guide/content.ts` |
+| Markdown → HTML, id tiêu đề kiểu GitHub, đổi link, tìm kiếm | `packages/ui/src/guide/markdown.ts` (thư viện `marked`) |
+| Màn hình hướng dẫn, nút Hướng dẫn | `packages/ui/src/guide/GuideView.tsx` |
+| Hướng dẫn theo ngữ cảnh, nút trên POS | `apps/pos/src/App.tsx` |
+| Chạy thử trực tiếp | `apps/pos/src/Walkthrough.tsx` |
+| Nút trên KDS / tablet | `apps/kds/src/App.tsx`, `apps/tablet/src/App.tsx` |
+
+## HD-07. Kiểm thử
+
+- Unit (`packages/ui`, vitest):
+  - id tiêu đề giống GitHub
+  - tìm không dấu và thứ tự kết quả
+  - đổi link tương đối
+  - **mọi link giữa các hướng dẫn trỏ tới tiêu đề có thật** (đổi tên tiêu đề mà quên sửa link → test đỏ)
+- Trình duyệt, chạy trọn một bàn qua giao diện thật trên POS + KDS + tablet:
+  - mở hướng dẫn đúng ngữ cảnh, tìm kiếm, link sang runbook
+  - bảng chạy thử đi đủ 9/9 bước tới "Hoàn tất"
+
+## HD-08. Chưa làm trong đợt này
+
+- Tour chỉ từng nút trên màn hình (overlay/tooltip).
+- Video hướng dẫn.
+- Hướng dẫn tiếng Anh cho khách nước ngoài.
+- Hướng dẫn cho màn hình back-office khi làm kho, AI (Sprint 8–10).
+- Thống kê nhân viên đã đọc hướng dẫn nào; tiến độ đào tạo lưu trên server (xem HD-10).
+
+## HD-09. Decision Record
+
+```text
+Nguồn nội dung:
+docs/*.md (một nguồn cho bản in và bản trong app)
+
+Hiển thị:
+Màn hình hướng dẫn toàn trang, dùng chung ở packages/ui
+
+Chạy thử:
+Tính từ dữ liệu thật trên POS, không thêm API hay bảng mới
+```
+
+## HD-10. Đào tạo nhân viên mới
+
+Trang **Đào tạo nhân viên mới** (`docs/huong-dan/dao-tao.md`), có trên POS và màn hình bếp, cho buổi đào tạo 2–3 giờ do quản lý ca hướng dẫn:
+
+| Phần | Nội dung |
+|---|---|
+| Chuẩn bị | Tập trên **hệ thống tập** (bill tập không lẫn vào doanh thu, hóa đơn, kết ca thật); tạo tài khoản đúng vai trò; mở sẵn POS, bếp, tablet |
+| Lộ trình buổi đầu | Giới thiệu luồng → quản lý làm mẫu bằng Chạy thử trực tiếp → nhân viên tự làm bài tập → tình huống sự cố → kiểm tra |
+| Bài tập theo vai trò | Phục vụ, thu ngân, bếp, quản lý ca: mỗi bài một việc cụ thể kèm kết quả phải thấy |
+| Tình huống sự cố | Cách tạo trên hệ thống tập (tắt Wi-Fi bếp, rút giấy máy in, giả lập lỗi robot…) và việc nhân viên phải làm |
+| Câu hỏi kiểm tra | 10 câu, đáp án ẩn, bấm để xem |
+| Đánh giá đạt | Làm hết bài của vai trò, đúng ≥ 8/10 câu, xử lý ≥ 2 tình huống, (thu ngân, quản lý) chạy thử tới "Hoàn tất"; ghi sổ đào tạo |
+
+Trong app:
+- Bài tập viết dạng `- [ ]` trong Markdown → ô bấm đánh dấu được (bấm cả dòng chữ).
+- Thanh tiến độ "Đã làm x/y bài tập", nút **Làm lại từ đầu**.
+- Tiến độ nhớ **theo tài khoản** (POS) hoặc **theo thiết bị** (màn hình bếp), trên máy đang dùng; mỗi người tiến độ riêng.
+- Đáp án dùng `<details>`: ẩn mặc định, bấm "Đáp án" để mở; trên GitHub hiển thị giống vậy.
+
+Chưa làm: lưu tiến độ và kết quả đánh giá lên server để quản lý xem trên mọi máy; sổ đào tạo vẫn ghi tay.
+
 # BỔ SUNG v0.5 — DATABASE MODULE MAP
 
 Để tránh bỏ sót domain khi bắt đầu thiết kế DB:

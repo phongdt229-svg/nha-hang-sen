@@ -1,5 +1,19 @@
 import type { DomainEvent, KitchenTicketDto, RobotTelemetry, TableDto } from '@nhs/types';
-import { Button, ConnectionDot, createApi, LoginScreen, Logo, storage, useRealtime, useToast } from '@nhs/ui';
+import {
+  Button,
+  ConnectionDot,
+  createApi,
+  GuideView,
+  HelpButton,
+  LoginScreen,
+  Logo,
+  ROLE_GUIDE,
+  storage,
+  useRealtime,
+  useToast,
+  type GuideId,
+  type GuideTarget,
+} from '@nhs/ui';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useCallback, useMemo, useState } from 'react';
 import { Accounts, ChangePassword } from './Accounts';
@@ -11,6 +25,7 @@ import { Reports } from './Reports';
 import { Robots } from './Robots';
 import { ShiftScreen } from './Shift';
 import { TableMap } from './TableMap';
+import { loadWalk, saveWalk, WalkthroughPanel, WalkthroughStart, type WalkState } from './Walkthrough';
 
 const TOKEN_KEY = 'nhs.pos.token';
 
@@ -54,12 +69,39 @@ const TAB_ROLES: Record<Tab, string[]> = {
   accounts: ['ADMIN', 'MANAGER'],
 };
 
+const POS_GUIDES: GuideId[] = ['dao-tao', 'chay-thu', 'phuc-vu', 'thu-ngan', 'quan-ly', 'ke-toan-chu-quan', 'bep', 'khach-hang', 'runbook', 'robot-demo'];
+
+/** Mở hướng dẫn đúng chỗ theo mục đang xem (HD-04); mục khác mở hướng dẫn của vai trò. */
+function guideFor(tab: Tab | undefined, role: string): GuideTarget {
+  const own = ROLE_GUIDE[role] ?? 'phuc-vu';
+  switch (tab) {
+    case 'alerts':
+      return { doc: 'runbook' };
+    case 'robots':
+      return { doc: 'phuc-vu', anchor: 'giao-món' };
+    case 'shift':
+      return role === 'CASHIER' ? { doc: 'thu-ngan', anchor: 'đầu-ca' } : { doc: 'quan-ly', anchor: 'cuối-ngày' };
+    case 'reports':
+      return role === 'ACCOUNTANT' ? { doc: 'ke-toan-chu-quan' } : { doc: 'quan-ly', anchor: 'báo-cáo' };
+    case 'accounts':
+      return { doc: 'quan-ly', anchor: 'thao-tác-cần-quyền-quản-lý' };
+    default:
+      return { doc: own };
+  }
+}
+
 function Shell({ token, onLogout }: { token: string; onLogout: () => void }) {
   const api = useMemo(() => createApi(() => token, onLogout), [token, onLogout]);
   const qc = useQueryClient();
   const toast = useToast();
   const [picked, setTab] = useState<Tab | null>(null);
   const [changingPassword, setChangingPassword] = useState(false);
+  const [guideOpen, setGuideOpen] = useState(false);
+  const [walk, setWalkState] = useState<WalkState | null>(loadWalk);
+  const setWalk = useCallback((w: WalkState | null) => {
+    saveWalk(w);
+    setWalkState(w);
+  }, []);
 
   const me = useQuery({ queryKey: ['me'], queryFn: () => api.get<Me>('/auth/me') });
   const role = me.data?.role ?? '';
@@ -144,6 +186,7 @@ function Shell({ token, onLogout }: { token: string; onLogout: () => void }) {
             ))}
           </nav>
           <div className="flex items-center gap-3">
+            <HelpButton onClick={() => setGuideOpen(true)} />
             <ConnectionDot connected={connected} />
             <button className="hidden text-sm text-stone-600 underline-offset-2 hover:underline sm:inline" title="Đổi mật khẩu" onClick={() => setChangingPassword(true)}>
               {me.data?.name}
@@ -163,6 +206,39 @@ function Shell({ token, onLogout }: { token: string; onLogout: () => void }) {
           {tab === 'accounts' && <Accounts />}
         </main>
         {changingPassword && <ChangePassword onClose={() => setChangingPassword(false)} />}
+        {floor && walk && <WalkthroughPanel walk={walk} onChange={setWalk} tab={tab ?? ''} onGoTab={setTab} />}
+        {guideOpen && (
+          <GuideView
+            docs={[ROLE_GUIDE[role] ?? 'phuc-vu', ...POS_GUIDES.filter((d) => d !== (ROLE_GUIDE[role] ?? 'phuc-vu'))]}
+            initial={guideFor(tab, role)}
+            extras={
+              floor
+                ? [
+                    {
+                      id: 'chay-thu-truc-tiep',
+                      title: 'Chạy thử (theo dõi trực tiếp)',
+                      render: (go) => (
+                        <WalkthroughStart
+                          walk={walk}
+                          go={go}
+                          onStart={(tableId) => {
+                            const t = tables.data?.find((x) => x.id === tableId);
+                            setWalk({ tableId, sessionId: t?.sessionId ?? null, startedAt: new Date().toISOString() });
+                            setTab('tables');
+                            setGuideOpen(false);
+                          }}
+                          onResume={() => setGuideOpen(false)}
+                          onStop={() => setWalk(null)}
+                        />
+                      ),
+                    },
+                  ]
+                : []
+            }
+            progressKey={me.data?.sub}
+            onClose={() => setGuideOpen(false)}
+          />
+        )}
         {toast.node}
       </div>
     </Pos.Provider>

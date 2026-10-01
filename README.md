@@ -31,7 +31,7 @@ docker compose -f infra/docker-compose.yml exec api npx prisma db seed   # dữ 
 # mở http://localhost:8088/pos/ ; thêm --profile monitoring để có Grafana :3001
 ```
 
-Triển khai thật tại quán, vận hành, sự cố: [docs/van-hanh/](docs/van-hanh/) · hướng dẫn nhân viên: [docs/huong-dan/](docs/huong-dan/).
+Triển khai thật tại quán, vận hành, sự cố: [docs/van-hanh/](docs/van-hanh/) · hướng dẫn nhân viên: [docs/huong-dan/](docs/huong-dan/) (cũng xem được trong app: nút **Hướng dẫn**).
 
 **Luồng demo:** POS mở bàn → ghép tablet → khách gọi món → KDS tự ACK, tablet hiện "Bếp đã nhận" → bếp bấm Nấu/Xong → POS khóa bill → thu tiền mặt hoặc QR → bàn chuyển "Cần dọn" → Dọn xong.
 
@@ -84,6 +84,7 @@ infra/          docker-compose, nginx, mosquitto, sao lưu (backup/), giám sát
 | 8 | AI tư vấn món (FastAPI) | Chưa làm |
 | 9–10, 14 | Kho nguyên liệu, định lượng, trừ kho, kiểm kê, food cost | Chưa làm |
 | 7 | Giám sát: `/metrics` Prometheus + dashboard Grafana, `/health/ready`, watchdog cảnh báo Telegram/Zalo không gửi lặp; tự khởi động lại sau mất điện; sao lưu WAL liên tục + bản nền hằng đêm, diễn tập khôi phục đo RTO/RPO; k6 giờ cao điểm; quản lý nhân viên, đổi mật khẩu, thu hồi thiết bị; runbook, hướng dẫn triển khai + kiosk/MDM, hướng dẫn theo vai trò, checklist UAT | Xong + test. **Còn tại quán:** k6 trên server thật, diễn tập mất điện/mất WAN, UAT chạy song song |
+| v0.8 | Hướng dẫn sử dụng trong app (HD): nút **Hướng dẫn** trên POS/KDS/tablet đọc thẳng `docs/huong-dan/*.md` + runbook, tìm không dấu, mở đúng mục theo màn hình và vai trò, in trang; POS **Chạy thử (theo dõi trực tiếp)**: bảng 9 bước mở bàn → gọi món → bếp → robot → thanh toán → dọn bàn tự đánh dấu theo dữ liệu thật; **Đào tạo nhân viên mới**: lộ trình buổi đầu, bài tập theo vai trò đánh dấu được (tiến độ theo tài khoản), tình huống sự cố, 10 câu kiểm tra có đáp án ẩn, tiêu chí đạt | Xong + test (link giữa các hướng dẫn, chạy trọn một bàn trên trình duyệt) |
 | — | i18n tablet, firmware mBot2/ESP32, dashboard/back-office | Chưa làm |
 
 **Hóa đơn điện tử:** `EINVOICE_PROVIDER=mock` dùng adapter giả lập (MST thử: `0100109106`, `0312345678`; MST khác bị từ chối). `EINVOICE_AUTO=false` để thu ngân bấm phát hành thủ công. Cần xác nhận với kế toán theo NĐ 254/2026 trước khi dùng thật (mục 12).

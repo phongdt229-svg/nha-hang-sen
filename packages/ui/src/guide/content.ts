@@ -1,6 +1,7 @@
 // Nội dung hướng dẫn lấy thẳng từ docs/ lúc build (HD-02): sửa file .md là app cập nhật theo, không chép tay.
 import bep from '../../../../docs/huong-dan/bep.md?raw';
 import chayThu from '../../../../docs/huong-dan/chay-thu.md?raw';
+import daoTao from '../../../../docs/huong-dan/dao-tao.md?raw';
 import keToan from '../../../../docs/huong-dan/ke-toan-chu-quan.md?raw';
 import khachHang from '../../../../docs/huong-dan/khach-hang.md?raw';
 import phucVu from '../../../../docs/huong-dan/phuc-vu.md?raw';
@@ -18,6 +19,7 @@ export interface GuideDoc {
 }
 
 export type GuideId =
+  | 'dao-tao'
   | 'chay-thu'
   | 'phuc-vu'
   | 'thu-ngan'
@@ -31,6 +33,7 @@ export type GuideId =
 const doc = (id: GuideId, title: string, path: string, markdown: string): GuideDoc => ({ id, title, path, markdown });
 
 export const GUIDES: Record<GuideId, GuideDoc> = {
+  'dao-tao': doc('dao-tao', 'Đào tạo nhân viên mới', 'huong-dan/dao-tao.md', daoTao),
   'chay-thu': doc('chay-thu', 'Chạy thử toàn bộ luồng', 'huong-dan/chay-thu.md', chayThu),
   'phuc-vu': doc('phuc-vu', 'Phục vụ / lễ tân', 'huong-dan/phuc-vu.md', phucVu),
   'thu-ngan': doc('thu-ngan', 'Thu ngân', 'huong-dan/thu-ngan.md', thuNgan),

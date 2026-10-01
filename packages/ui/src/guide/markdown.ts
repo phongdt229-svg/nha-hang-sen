@@ -27,6 +27,7 @@ export function resolveLink(href: string, from: GuideDoc): { doc: GuideId; ancho
 
 const plain = (md: string) =>
   md
+    .replace(/<[^>]+>/g, ' ')
     .replace(/\[([^\]]*)\]\([^)]*\)/g, '$1')
     .replace(/[*_`>#|]/g, '')
     .replace(/\s+/g, ' ')
@@ -58,6 +59,7 @@ export function sections(g: GuideDoc): GuideSection[] {
 
 export interface SearchHit extends GuideSection {
   snippet: string;
+  score: number;
 }
 
 export function search(query: string, docs: GuideDoc[]): SearchHit[] {
@@ -69,12 +71,25 @@ export function search(query: string, docs: GuideDoc[]): SearchHit[] {
       const body = plain(s.text);
       const hay = fold(`${g.title} ${s.heading} ${body}`);
       if (!terms.every((t) => hay.includes(t))) continue;
-      const at = Math.max(0, fold(body).indexOf(terms[0]));
+      // Cả cụm từ liền nhau xếp trước, khớp ở tiêu đề xếp trước khớp ở nội dung.
+      const phrase = terms.join(' ');
+      const score = (fold(s.heading).includes(phrase) ? 4 : 0) + (hay.includes(phrase) ? 2 : 0) + (terms.some((t) => fold(s.heading).includes(t)) ? 1 : 0);
+      const at = Math.max(0, fold(body).indexOf(fold(body).includes(phrase) ? phrase : terms[0]));
       const from = Math.max(0, at - 40);
-      hits.push({ ...s, snippet: `${from > 0 ? '…' : ''}${body.slice(from, from + 140)}${body.length > from + 140 ? '…' : ''}` });
+      hits.push({ ...s, score, snippet: `${from > 0 ? '…' : ''}${body.slice(from, from + 140)}${body.length > from + 140 ? '…' : ''}` });
     }
   }
-  return hits;
+  return hits.sort((x, y) => y.score - x.score);
+}
+
+/** Số bài tập dạng ô đánh dấu "- [ ]" (tiến độ đào tạo, HD-10). */
+export function taskCount(g: GuideDoc) {
+  return g.markdown.match(/^\s*[-*] \[[ xX]\] /gm)?.length ?? 0;
+}
+
+/** Id của mọi tiêu đề trong hướng dẫn (đích hợp lệ cho link "#…"). */
+export function headingAnchors(g: GuideDoc) {
+  return [...g.markdown.matchAll(/^#{1,4}\s+(.*)$/gm)].map((m) => slugify(plain(m[1])));
 }
 
 /** Các mục "##" để làm mục lục đầu trang. */
@@ -106,6 +121,16 @@ export function renderGuide(g: GuideDoc): string {
       span.innerHTML = a.innerHTML;
       a.replaceWith(span);
     }
+  });
+  // Bài tập "- [ ]": gói cả dòng vào <label> để bấm vào chữ cũng đánh dấu được.
+  dom.querySelectorAll('li > input[type="checkbox"]').forEach((input) => {
+    const li = input.parentElement!;
+    const label = dom.createElement('label');
+    const text = dom.createElement('span');
+    while (input.nextSibling) text.append(input.nextSibling);
+    label.append(input, text);
+    li.append(label);
+    li.classList.add('guide-task');
   });
   dom.querySelectorAll('table').forEach((t) => {
     const wrap = dom.createElement('div');

@@ -7,6 +7,7 @@ import {
   DELIVERY_STATUS_LABEL,
   DELIVERY_STATUS_TONE,
   errorMessage,
+  GuideView,
   ITEM_STATUS_LABEL,
   ITEM_STATUS_TONE,
   Logo,
@@ -85,6 +86,7 @@ function Kitchen({ token, device, station, onUnauthorized }: { token: string; de
   const toast = useToast();
   const chime = useChime();
   const [soldOutOpen, setSoldOutOpen] = useState(false);
+  const [guideOpen, setGuideOpen] = useState(false);
   const [, tick] = useState(0);
   const acking = useRef(new Set<string>());
   const seen = useRef<Set<string> | null>(null);
@@ -159,6 +161,9 @@ function Kitchen({ token, device, station, onUnauthorized }: { token: string; de
           <Button size="sm" variant="secondary" onClick={() => setSoldOutOpen(true)}>
             Báo hết món
           </Button>
+          <Button size="sm" variant="secondary" onClick={() => setGuideOpen(true)}>
+            Hướng dẫn
+          </Button>
           <span className="rounded-lg bg-white/10 px-2 py-1">
             <ConnectionDot connected={connected} />
           </span>
@@ -179,6 +184,8 @@ function Kitchen({ token, device, station, onUnauthorized }: { token: string; de
       )}
 
       <DeliveryStrip api={api} station={station} onError={toast.show} />
+
+      {guideOpen && <GuideView docs={['bep', 'dao-tao', 'chay-thu']} progressKey={device.id} onClose={() => setGuideOpen(false)} />}
 
       {soldOutOpen && <SoldOutModal api={api} station={station} onClose={() => setSoldOutOpen(false)} onError={toast.show} />}
       {toast.node}

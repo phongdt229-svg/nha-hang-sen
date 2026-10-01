@@ -4,9 +4,10 @@ import { KITCHEN_QUEUE } from './kitchen.config';
 import { KitchenController } from './kitchen.controller';
 import { KitchenProcessor } from './kitchen.processor';
 import { KitchenService } from './kitchen.service';
+import { InventoryModule } from '../inventory/inventory.module';
 
 @Module({
-  imports: [BullModule.registerQueue({ name: KITCHEN_QUEUE })],
+  imports: [BullModule.registerQueue({ name: KITCHEN_QUEUE }), InventoryModule],
   controllers: [KitchenController],
   providers: [KitchenService, KitchenProcessor],
   exports: [KitchenService],

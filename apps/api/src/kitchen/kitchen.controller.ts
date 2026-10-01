@@ -8,6 +8,7 @@ import { toOrderItemDto } from '../orders/order.mapper';
 import { PrismaService } from '../prisma/prisma.service';
 import { currentTables } from '../sessions/session.helpers';
 import { KitchenService } from './kitchen.service';
+import { InventoryService } from '../inventory/inventory.service';
 
 const StatusSchema = z.object({ status: z.enum(['PREPARING', 'READY', 'DELIVERED']) });
 
@@ -23,6 +24,7 @@ export class KitchenController {
     private readonly kitchen: KitchenService,
     private readonly prisma: PrismaService,
     private readonly events: EventsService,
+    private readonly inventory: InventoryService,
   ) {}
 
   @Allow('KDS', 'KITCHEN', 'MANAGER', 'CASHIER', 'WAITER')
@@ -48,13 +50,41 @@ export class KitchenController {
   /** Bếp cập nhật Đang nấu / Xong; phục vụ báo đã đưa món tới bàn. */
   @Allow('KDS', 'KITCHEN', 'MANAGER', 'WAITER')
   @Patch('order-items/:id/status')
-  async status(@Param('id', ParseUUIDPipe) id: string, @Body(new ZodPipe(StatusSchema)) body: z.infer<typeof StatusSchema>) {
+  async status(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body(new ZodPipe(StatusSchema)) body: z.infer<typeof StatusSchema>,
+    @CurrentPrincipal() principal: Principal,
+  ) {
     const item = await this.prisma.$transaction(async (tx) => {
       const [row] = await tx.$queryRaw<{ id: string }[]>`SELECT id FROM order_items WHERE id = ${id} FOR UPDATE`;
       if (!row) throw new BadRequestException('Không tìm thấy món');
       const before = await tx.orderItem.findUniqueOrThrow({ where: { id }, include: { order: true } });
       if (before.status === body.status) return before;
       assertTransition('món', ORDER_ITEM_TRANSITIONS, before.status, body.status);
+
+      // Sprint 2: Auto-deduct stock when transitioning to PREPARING
+      if (body.status === 'PREPARING' && before.status !== 'PREPARING') {
+        try {
+          await this.inventory.deductStockForPreparation(tx, {
+            menuItemId: before.menuItemId,
+            qty: before.qty,
+            orderItemId: id,
+            createdBy: principal.userId || 'system',
+          });
+
+          // Recompute menu availability for all ingredients used
+          const menuItem = await tx.menuItem.findUniqueOrThrow({ where: { id: before.menuItemId } });
+          const recipeLines = await tx.recipeLine.findMany({
+            where: { menuItemId: before.menuItemId },
+          });
+          for (const line of recipeLines) {
+            await this.inventory.recomputeMenuAvailability(tx, line.ingredientId);
+          }
+        } catch (err) {
+          throw new BadRequestException(`Insufficient stock: ${err.message}`);
+        }
+      }
+
       const item = await tx.orderItem.update({ where: { id }, data: { status: body.status, readyAt: body.status === 'READY' ? new Date() : undefined } });
       const tables = await currentTables(tx, before.order.sessionId);
       await this.events.append(tx, EVENT_BY_STATUS[body.status], 'order_item', id, {

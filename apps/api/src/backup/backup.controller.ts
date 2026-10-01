@@ -53,8 +53,9 @@ export class BackupController {
       const filename = match ? match[0].split('/')[1] : 'backup.sql.gz';
 
       return { success: true, filename, message: 'Backup created successfully' };
-    } catch (error) {
-      throw new BadRequestException(`Backup failed: ${error.message}`);
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
+      throw new BadRequestException(`Backup failed: ${message}`);
     }
   }
 

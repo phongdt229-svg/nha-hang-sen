@@ -1,6 +1,6 @@
 import { Body, Controller, Get, Param, Post, Query } from '@nestjs/common';
 import { z } from 'zod';
-import { Allow, Principal } from '../auth/principal';
+import { Allow, CurrentPrincipal, type Principal } from '../auth/principal';
 import { ZodPipe } from '../common/zod.pipe';
 import { PrismaService } from '../prisma/prisma.service';
 import { InventoryService } from './inventory.service';
@@ -79,20 +79,25 @@ export class InventoryController {
   async setRecipe(
     @Param('id') menuItemId: string,
     @Body(new ZodPipe(RecipeSchema)) body: z.infer<typeof RecipeSchema>,
-    @Principal() principal: any,
+    @CurrentPrincipal() principal: Principal,
   ) {
     await this.prisma.$transaction(async (tx) => {
       // Xóa công thức cũ
       await tx.recipeLine.deleteMany({ where: { menuItemId } });
 
+      // Fetch units upfront (can't use await in map)
+      const ingredientUnits = await Promise.all(
+        body.ingredients.map(i => this.inventory.getIngredient(i.ingredientId)),
+      );
+
       // Thêm công thức mới
       await tx.recipeLine.createMany({
-        data: body.ingredients.map((i) => ({
+        data: body.ingredients.map((i, idx) => ({
           menuItemId,
           ingredientId: i.ingredientId,
           qty: new Decimal(i.qty),
           wastePercent: new Decimal(i.wastePercent),
-          unit: (await this.inventory.getIngredient(i.ingredientId)).unit,
+          unit: ingredientUnits[idx].unit,
         })),
       });
 
@@ -103,11 +108,6 @@ export class InventoryController {
         entity: 'MenuItem',
         entityId: menuItemId,
         after: { lines: body.ingredients },
-      });
-
-      // Event
-      await this.events.append(tx, 'menu.recipe_changed', 'MenuItem', menuItemId, {
-        lines: body.ingredients.length,
       });
     });
 
@@ -120,7 +120,7 @@ export class InventoryController {
   @Post('stock/receive')
   async receiveStock(
     @Body(new ZodPipe(ReceiveStockSchema)) body: z.infer<typeof ReceiveStockSchema>,
-    @Principal() principal: any,
+    @CurrentPrincipal() principal: Principal,
   ) {
     return this.prisma.$transaction(async (tx) => {
       const receipt = await tx.goodsReceipt.create({
@@ -156,7 +156,7 @@ export class InventoryController {
   @Post('stock/adjust')
   async adjustStock(
     @Body(new ZodPipe(AdjustStockSchema)) body: z.infer<typeof AdjustStockSchema>,
-    @Principal() principal: any,
+    @CurrentPrincipal() principal: Principal,
   ) {
     return this.prisma.$transaction(async (tx) => {
       const movement = await this.inventory.adjustStock(tx, {

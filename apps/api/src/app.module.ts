@@ -2,9 +2,11 @@ import { BullModule } from '@nestjs/bullmq';
 import { Controller, Get, Module } from '@nestjs/common';
 import { AuthModule } from './auth/auth.module';
 import { Public } from './auth/principal';
+import { BackupModule } from './backup/backup.module';
 import { BillingModule } from './billing/billing.module';
 import { CommonModule } from './common/common.module';
 import { DeliveryModule } from './delivery/delivery.module';
+import { InventoryModule } from './inventory/inventory.module';
 import { EInvoiceModule } from './einvoice/einvoice.module';
 import { EventsModule } from './events/events.module';
 import { KitchenModule } from './kitchen/kitchen.module';
@@ -42,6 +44,7 @@ class HealthController {
     PrismaModule,
     CommonModule,
     AuthModule,
+    BackupModule,
     EventsModule,
     SessionsModule,
     MenuModule,
@@ -54,6 +57,7 @@ class HealthController {
     PrintingModule,
     ObservabilityModule,
     DeliveryModule,
+    InventoryModule,
   ],
   controllers: [HealthController],
 })

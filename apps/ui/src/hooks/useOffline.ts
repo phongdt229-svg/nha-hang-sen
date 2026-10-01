@@ -1,0 +1,25 @@
+import { useEffect, useState } from 'react';
+import { createSyncManager } from '../offline/sync';
+
+export function useOnlineStatus() {
+  const [isOnline, setIsOnline] = useState(navigator.onLine);
+
+  useEffect(() => {
+    const handleOnline = () => setIsOnline(true);
+    const handleOffline = () => setIsOnline(false);
+
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+    return () => {
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
+    };
+  }, []);
+
+  return isOnline;
+}
+
+export function useSyncManager() {
+  const [manager] = useState(() => createSyncManager());
+  return manager;
+}

@@ -200,6 +200,7 @@ function Devices() {
   const qc = useQueryClient();
   const q = useQuery({ queryKey: ['devices'], queryFn: () => api.get<DeviceRow[]>('/devices') });
   const [showRevoked, setShowRevoked] = useState(false);
+  const [creating, setCreating] = useState(false);
   const rows = (q.data ?? []).filter((d) => showRevoked || !d.revokedAt);
 
   async function revoke(d: DeviceRow) {
@@ -217,9 +218,12 @@ function Devices() {
     <section className="space-y-3">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h2 className="text-lg font-bold">Thiết bị đã ghép</h2>
-        <label className="flex items-center gap-2 text-sm text-stone-600">
-          <input type="checkbox" checked={showRevoked} onChange={(e) => setShowRevoked(e.target.checked)} /> Hiện cả thiết bị đã thu hồi
-        </label>
+        <div className="flex items-center gap-2">
+          <label className="flex items-center gap-2 text-sm text-stone-600">
+            <input type="checkbox" checked={showRevoked} onChange={(e) => setShowRevoked(e.target.checked)} /> Hiện cả thiết bị đã thu hồi
+          </label>
+          <Button onClick={() => setCreating(true)}>Tạo mã ghép</Button>
+        </div>
       </div>
       <p className="text-sm text-stone-600">Tablet mất, hỏng hoặc thay mới: thu hồi để token cũ hết hiệu lực, rồi ghép thiết bị mới.</p>
       <div className="overflow-x-auto rounded-2xl bg-white ring-1 ring-stone-200">
@@ -263,6 +267,68 @@ function Devices() {
           </tbody>
         </table>
       </div>
+      {creating && <CreatePairingCodeModal onClose={() => { setCreating(false); void qc.invalidateQueries({ queryKey: ['devices'] }); }} />}
     </section>
+  );
+}
+
+function CreatePairingCodeModal({ onClose }: { onClose: () => void }) {
+  const { api, toast } = usePos();
+  const [kind, setKind] = useState<'KDS' | 'TABLET'>('KDS');
+  const [station, setStation] = useState('BEP_NONG');
+  const [code, setCode] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  async function create() {
+    setBusy(true);
+    try {
+      const body = kind === 'KDS' ? { kind, station } : { kind, tableId: '' };
+      const res = await api.post<{ code: string; expiresAt: string }>('/devices/pairing-codes', body);
+      setCode(res.code);
+    } catch (e) {
+      toast(errorMessage(e));
+      onClose();
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (code) {
+    return (
+      <Modal title="Mã ghép đã tạo" onClose={onClose}>
+        <div className="space-y-4 text-center">
+          <p className="text-sm text-stone-600">Sử dụng mã này trên {kind === 'KDS' ? 'màn hình bếp' : 'tablet'} (hết hạn sau 10 phút)</p>
+          <div className="rounded-xl bg-blue-50 p-4 text-3xl font-bold tracking-widest text-blue-900">{code}</div>
+          <Button className="w-full" onClick={onClose}>Đóng</Button>
+        </div>
+      </Modal>
+    );
+  }
+
+  return (
+    <Modal title="Tạo mã ghép thiết bị" onClose={onClose}>
+      <div className="space-y-3">
+        <label className="block">
+          <span className="text-sm font-medium">Loại thiết bị</span>
+          <select className={field} value={kind} onChange={(e) => setKind(e.target.value as 'KDS' | 'TABLET')}>
+            <option value="KDS">Màn hình bếp (KDS)</option>
+            <option value="TABLET">Tablet gọi món</option>
+          </select>
+        </label>
+        {kind === 'KDS' && (
+          <label className="block">
+            <span className="text-sm font-medium">Trạm bếp</span>
+            <select className={field} value={station} onChange={(e) => setStation(e.target.value)}>
+              <option value="BEP_NONG">Bếp nóng</option>
+              <option value="BEP_LANH">Bếp lạnh</option>
+              <option value="QUAY_BAR">Quầy bar</option>
+            </select>
+          </label>
+        )}
+        <Button className="w-full" disabled={busy} onClick={() => void create()}>
+          Tạo mã
+        </Button>
+      </div>
+    </Modal>
   );
 }

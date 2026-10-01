@@ -18,6 +18,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useCallback, useMemo, useState } from 'react';
 import { Accounts, ChangePassword } from './Accounts';
 import { Alerts } from './Alerts';
+import { Backup } from './Backup';
 import { Pos } from './context';
 import { Overview } from './Overview';
 import { printerProblem, type PrintStatus } from './Printing';
@@ -56,7 +57,7 @@ export function App() {
   return <Shell token={token} onLogout={logout} />;
 }
 
-type Tab = 'tables' | 'alerts' | 'robots' | 'overview' | 'shift' | 'reports' | 'accounts';
+type Tab = 'tables' | 'alerts' | 'robots' | 'overview' | 'shift' | 'reports' | 'accounts' | 'backup';
 
 /** Mục hiện theo vai trò (mục 9): kế toán chỉ xem báo cáo, phục vụ không thu tiền. */
 const TAB_ROLES: Record<Tab, string[]> = {
@@ -67,6 +68,7 @@ const TAB_ROLES: Record<Tab, string[]> = {
   shift: ['ADMIN', 'MANAGER', 'CASHIER'],
   reports: ['ADMIN', 'MANAGER', 'ACCOUNTANT'],
   accounts: ['ADMIN', 'MANAGER'],
+  backup: ['ADMIN'],
 };
 
 const POS_GUIDES: GuideId[] = ['dao-tao', 'chay-thu', 'phuc-vu', 'thu-ngan', 'quan-ly', 'ke-toan-chu-quan', 'bep', 'khach-hang', 'runbook', 'robot-demo'];
@@ -165,6 +167,7 @@ function Shell({ token, onLogout }: { token: string; onLogout: () => void }) {
       ['shift', 'Ca làm'],
       ['reports', 'Báo cáo'],
       ['accounts', role === 'ADMIN' ? 'Nhân viên & thiết bị' : 'Thiết bị'],
+      ['backup', '🔄 Sao lưu'],
     ] as [Tab, string][]
   ).filter(([t]) => TAB_ROLES[t].includes(role));
   const tab = picked && tabs.some(([t]) => t === picked) ? picked : tabs[0]?.[0];
@@ -204,6 +207,7 @@ function Shell({ token, onLogout }: { token: string; onLogout: () => void }) {
           {tab === 'shift' && <ShiftScreen />}
           {tab === 'reports' && <Reports />}
           {tab === 'accounts' && <Accounts />}
+          {tab === 'backup' && <Backup />}
         </main>
         {changingPassword && <ChangePassword onClose={() => setChangingPassword(false)} />}
         {floor && walk && <WalkthroughPanel walk={walk} onChange={setWalk} tab={tab ?? ''} onGoTab={setTab} />}

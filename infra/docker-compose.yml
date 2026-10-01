@@ -72,6 +72,8 @@ services:
       postgres: { condition: service_healthy }
       redis: { condition: service_healthy }
     ports: ['3000:3000']
+    volumes:
+      - backups:/app/backups
     healthcheck:
       test: ['CMD', 'wget', '-qO-', 'http://127.0.0.1:3000/health/ready']
       interval: 15s

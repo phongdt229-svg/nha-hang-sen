@@ -69,7 +69,7 @@ export class KitchenController {
             menuItemId: before.menuItemId,
             qty: before.qty,
             orderItemId: id,
-            createdBy: principal.userId || 'system',
+            createdBy: principal.sub || 'system',
           });
 
           // Recompute menu availability for all ingredients used
@@ -80,8 +80,9 @@ export class KitchenController {
           for (const line of recipeLines) {
             await this.inventory.recomputeMenuAvailability(tx, line.ingredientId);
           }
-        } catch (err) {
-          throw new BadRequestException(`Insufficient stock: ${err.message}`);
+        } catch (err: unknown) {
+          const message = err instanceof Error ? err.message : String(err);
+          throw new BadRequestException(`Insufficient stock: ${message}`);
         }
       }
 

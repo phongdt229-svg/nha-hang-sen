@@ -194,15 +194,6 @@ export class InventoryService {
       },
     });
 
-    // Emit event
-    const eventType =
-      data.type === 'HỦY' ? 'stock.wasted' : data.type === 'CHUYỂN' ? 'stock.transferred' : 'stock.adjusted';
-    await this.events.append(tx, eventType, 'Ingredient', data.ingredientId, {
-      type: data.type,
-      qty: data.qty.toString(),
-      reason: data.reason,
-    });
-
     return movement;
   }
 

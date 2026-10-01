@@ -103,7 +103,7 @@ export class InventoryController {
 
       // Audit
       await this.audit.record(tx, {
-        actorId: principal.userId,
+        actorId: principal.sub,
         action: 'SET_RECIPE',
         entity: 'MenuItem',
         entityId: menuItemId,
@@ -123,8 +123,12 @@ export class InventoryController {
     @CurrentPrincipal() principal: Principal,
   ) {
     return this.prisma.$transaction(async (tx) => {
+      // Create goods receipt (placeholder supplier)
       const receipt = await tx.goodsReceipt.create({
-        data: { code: `GR-${Date.now()}` },
+        data: {
+          code: `GR-${Date.now()}`,
+          supplierId: 'placeholder-supplier',
+        },
       });
 
       const movement = await this.inventory.receiveStock(tx, {
@@ -133,7 +137,7 @@ export class InventoryController {
         unitCost: new Decimal(body.unitCost),
         lotNumber: body.lotNumber,
         refId: receipt.id,
-        createdBy: principal.userId,
+        createdBy: principal.sub,
       });
 
       // Tính lại availability
@@ -141,7 +145,7 @@ export class InventoryController {
 
       // Audit
       await this.audit.record(tx, {
-        actorId: principal.userId,
+        actorId: principal.sub,
         action: 'RECEIVE_STOCK',
         entity: 'Ingredient',
         entityId: body.ingredientId,
@@ -164,12 +168,12 @@ export class InventoryController {
         type: body.type,
         qty: new Decimal(body.qty),
         reason: body.reason,
-        createdBy: principal.userId,
+        createdBy: principal.sub,
       });
 
       // Audit
       await this.audit.record(tx, {
-        actorId: principal.userId,
+        actorId: principal.sub,
         action: `${body.type}_STOCK`,
         entity: 'Ingredient',
         entityId: body.ingredientId,

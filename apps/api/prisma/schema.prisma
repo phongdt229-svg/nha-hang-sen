@@ -158,6 +158,7 @@ model DiningSession {
   assignments TableAssignment[]
   orders      Order[]
   bills       Bill[]
+  aiConversations AIConversation[]
 
   @@map("dining_sessions")
 }
@@ -200,6 +201,7 @@ model MenuItem {
   sort       Int          @default(0)
   category   MenuCategory @relation(fields: [categoryId], references: [id])
   orderItems OrderItem[]
+  recipeLines RecipeLine[]
 
   @@map("menu_items")
 }
@@ -748,4 +750,266 @@ model PrintJob {
 
   @@index([target, status, createdAt])
   @@map("print_jobs")
+}
+
+// ============ INVENTORY (Phase 2, Sprint 1) ============
+
+enum StockMovementType {
+  NHẬP
+  BÁN
+  HỦY
+  CHUYỂN
+  ĐIỀU_CHỈNH
+}
+
+model Ingredient {
+  id           String    @id @default(uuid())
+  code         String    @unique
+  name         String
+  group        String
+  unit         String    /// Đơn vị gốc (g, ml, cái, bộ)
+  minStock     Decimal   @map("min_stock") @db.Decimal(14, 3)
+  trackLots    Boolean   @default(false) @map("track_lots")
+  storageNote  String?   @map("storage_note")
+  createdAt    DateTime  @default(now()) @map("created_at")
+
+  recipeLines    RecipeLine[]
+  unitConversions UnitConversion[]
+  stocks         StockMovement[]
+
+  @@map("ingredients")
+}
+
+model UnitConversion {
+  id            String    @id @default(uuid())
+  ingredientId  String    @map("ingredient_id")
+  fromUnit      String    @map("from_unit") /// thùng, bao, kg, …
+  toUnit        String    @map("to_unit") /// đơn vị gốc
+  ratio         Decimal   @db.Decimal(14, 3) /// từ_unit = ratio × to_unit
+  createdAt     DateTime  @default(now()) @map("created_at")
+
+  ingredient    Ingredient @relation(fields: [ingredientId], references: [id])
+
+  @@unique([ingredientId, fromUnit, toUnit])
+  @@map("unit_conversions")
+}
+
+model Supplier {
+  id           String    @id @default(uuid())
+  code         String    @unique
+  name         String
+  taxCode      String?   @map("tax_code")
+  phone        String?
+  address      String?
+  contact      String?
+  paymentTerms String?   @map("payment_terms")
+  createdAt    DateTime  @default(now()) @map("created_at")
+
+  @@map("suppliers")
+}
+
+model Warehouse {
+  id       String @id @default(uuid())
+  code     String @unique
+  name     String
+  kind     String /// MAIN, KITCHEN, BAR, …
+
+  @@map("warehouses")
+}
+
+/// Công thức: một menu_item có danh sách ingredients với lượng dùng
+model RecipeLine {
+  id            String    @id @default(uuid())
+  menuItemId    String    @map("menu_item_id")
+  ingredientId  String    @map("ingredient_id")
+  unit          String    /// đơn vị gốc của ingredient
+  qty           Decimal   @db.Decimal(14, 3) /// lượng dùng
+  wastePercent  Decimal   @default(0) @map("waste_percent") @db.Decimal(14, 3) /// 5.5 = 5.5%
+  version       Int       @default(1) /// versioned, để biết công thức nào khi tính food cost
+  validFrom     DateTime? @map("valid_from")
+  validTo       DateTime? @map("valid_to")
+  createdAt     DateTime  @default(now()) @map("created_at")
+
+  menuItem      MenuItem @relation(fields: [menuItemId], references: [id])
+  ingredient    Ingredient @relation(fields: [ingredientId], references: [id])
+
+  @@unique([menuItemId, ingredientId, version])
+  @@index([menuItemId])
+  @@map("recipe_lines")
+}
+
+/// Lô: khi track_lots=true, mỗi lô có hạn dùng; khi false, chỉ cần một row "default"
+model StockLot {
+  id            String    @id @default(uuid())
+  ingredientId  String    @map("ingredient_id")
+  lotNumber     String?   @map("lot_number")
+  expiresAt     DateTime? @map("expires_at")
+  warehouse     String
+  qty           Decimal   @db.Decimal(14, 3) /// dùng tính cấp nhanh; source of truth là stock_movements
+  createdAt     DateTime  @default(now()) @map("created_at")
+
+  @@unique([ingredientId, lotNumber, warehouse])
+  @@map("stock_lots")
+}
+
+/// Sổ kho: append-only ledger. Stock level = SUM(qty) cho mỗi ingredient.
+model StockMovement {
+  id            String    @id @default(uuid())
+  ingredientId  String    @map("ingredient_id")
+  type          StockMovementType
+  qty           Decimal   @db.Decimal(14, 3) /// +/-
+  unit          String    /// đơn vị gốc
+  unitCost      Decimal?  @map("unit_cost") @db.Decimal(14, 3) /// chi phí của từng unit (dùng cho food cost)
+  lotNumber     String?   @map("lot_number") /// nếu track_lots
+  warehouse     String    @default("MAIN")
+  /// Tham chiếu: GoodsReceipt.id cho NHẬP; OrderItem.id cho BÁN; invoice/phiếu cho HỦY; internal ref cho CHUYỂN/ĐIỀU_CHỈNH
+  refType       String?   @map("ref_type")
+  refId         String?   @map("ref_id")
+  note          String?   /// lý do ĐIỀU_CHỈNH, hủy (hết hạn, hỏng, …)
+  createdAt     DateTime  @default(now()) @map("created_at")
+  createdBy     String?   @map("created_by")
+
+  ingredient    Ingredient @relation(fields: [ingredientId], references: [id])
+
+  @@index([ingredientId, createdAt])
+  @@index([refType, refId])
+  @@map("stock_movements")
+}
+
+/// Phiếu nhập hàng từ nhà cung cấp
+model GoodsReceipt {
+  id           String    @id @default(uuid())
+  code         String    @unique
+  supplierId   String    @map("supplier_id")
+  invoiceNumber String?  @map("invoice_number")
+  receivedAt   DateTime  @default(now()) @map("received_at")
+  createdAt    DateTime  @default(now()) @map("created_at")
+
+  lines        GoodsReceiptLine[]
+
+  @@map("goods_receipts")
+}
+
+model GoodsReceiptLine {
+  id            String    @id @default(uuid())
+  receiptId     String    @map("receipt_id")
+  ingredientId  String    @map("ingredient_id")
+  unit          String    /// đơn vị gốc
+  qtyReceived   Decimal   @map("qty_received") @db.Decimal(14, 3)
+  unitCost      Decimal   @map("unit_cost") @db.Decimal(14, 3)
+  lotNumber     String?   @map("lot_number")
+  expiresAt     DateTime? @map("expires_at")
+
+  receipt       GoodsReceipt @relation(fields: [receiptId], references: [id])
+
+  @@map("goods_receipt_lines")
+}
+
+/// Phiếu kiểm kê: so sánh tồn lý thuyết (từ movements) vs thực tế (đếm)
+model StockCount {
+  id            String    @id @default(uuid())
+  code          String    @unique
+  countedAt     DateTime  @default(now()) @map("counted_at")
+  countedBy     String    @map("counted_by")
+  approvedBy    String?   @map("approved_by")
+  note          String?
+  createdAt     DateTime  @default(now()) @map("created_at")
+
+  lines         StockCountLine[]
+
+  @@map("stock_counts")
+}
+
+model StockCountLine {
+  id           String    @id @default(uuid())
+  countId      String    @map("count_id")
+  ingredientId String    @map("ingredient_id")
+  theoretical  Decimal   @db.Decimal(14, 3) /// từ SUM(movements)
+  actual       Decimal   @db.Decimal(14, 3) /// đếm thực tế
+  difference   Decimal   @db.Decimal(14, 3) /// actual - theoretical; > 0 hoặc < 0
+
+  count        StockCount @relation(fields: [countId], references: [id])
+
+  @@unique([countId, ingredientId])
+  @@map("stock_count_lines")
+}
+
+// ============ AI & CONVERSATION (Phase 2, Sprint 3) ============
+
+model AIConversation {
+  id        String    @id @default(uuid())
+  sessionId String    @map("session_id")
+  createdAt DateTime  @default(now()) @map("created_at")
+  messages  AIMessage[]
+
+  session   DiningSession @relation(fields: [sessionId], references: [id])
+
+  @@map("ai_conversations")
+}
+
+model AIMessage {
+  id             String    @id @default(uuid())
+  conversationId String    @map("conversation_id")
+  role           String    /// "user", "assistant"
+  content        String    /// message body
+  suggestedItems Json?     @map("suggested_items") /// JSON: [{menuItemId, qty}]
+  createdAt      DateTime  @default(now()) @map("created_at")
+
+  conversation   AIConversation @relation(fields: [conversationId], references: [id])
+
+  @@index([conversationId, createdAt])
+  @@map("ai_messages")
+}
+
+// ============ PROMOTIONS (Phase 2, Sprint 4) ============
+
+enum PromotionType {
+  PERCENT
+  FIXED
+  HAPPY_HOUR
+  VOUCHER
+}
+
+model Promotion {
+  id        String    @id @default(uuid())
+  code      String    @unique
+  name      String
+  type      PromotionType
+  value     Decimal   @db.Decimal(14, 3) /// % hoặc fixed amount
+  startAt   DateTime  @map("start_at")
+  endAt     DateTime  @map("end_at")
+  /// Nếu HAPPY_HOUR: JSON {dayOfWeek: [0-6], fromHour: 7, toHour: 11}
+  rules     Json?
+  active    Boolean   @default(true)
+  createdAt DateTime  @default(now()) @map("created_at")
+
+  @@map("promotions")
+}
+
+model Voucher {
+  id        String    @id @default(uuid())
+  code      String    @unique
+  value     Decimal   @db.Decimal(14, 3)
+  remaining Int       /// số lượng còn lại
+  startAt   DateTime  @map("start_at")
+  endAt     DateTime  @map("end_at")
+  active    Boolean   @default(true)
+  createdAt DateTime  @default(now()) @map("created_at")
+
+  redemptions VoucherRedemption[]
+
+  @@map("vouchers")
+}
+
+model VoucherRedemption {
+  id        String    @id @default(uuid())
+  voucherId String    @map("voucher_id")
+  billId    String    @map("bill_id")
+  value     Decimal   @db.Decimal(14, 3)
+  createdAt DateTime  @default(now()) @map("created_at")
+
+  voucher   Voucher @relation(fields: [voucherId], references: [id])
+
+  @@unique([voucherId, billId])
+  @@map("voucher_redemptions")
 }

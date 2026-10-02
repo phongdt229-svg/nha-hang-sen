@@ -11,7 +11,7 @@ export class ApiError extends Error {
 /** Lỗi mạng (không tới được server) — khác lỗi nghiệp vụ, client nên giữ nguyên dữ liệu để gửi lại. */
 export class NetworkError extends Error {}
 
-export const API_BASE = (import.meta as any).env?.VITE_API_URL || 'http://localhost:8000';
+export const API_BASE = '/api';
 
 export interface ApiClient {
   get<T>(path: string): Promise<T>;

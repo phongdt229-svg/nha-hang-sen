@@ -87,6 +87,7 @@ function Kitchen({ token, device, station, onUnauthorized }: { token: string; de
   const chime = useChime();
   const [soldOutOpen, setSoldOutOpen] = useState(false);
   const [guideOpen, setGuideOpen] = useState(false);
+  const [currentStation, setCurrentStation] = useState(station);
   const [, tick] = useState(0);
   const acking = useRef(new Set<string>());
   const seen = useRef<Set<string> | null>(null);
@@ -97,6 +98,13 @@ function Kitchen({ token, device, station, onUnauthorized }: { token: string; de
   }, []);
 
   const tickets = useQuery({ queryKey: ['tickets'], queryFn: () => api.get<KitchenTicketDto[]>('/kitchen/tickets'), refetchInterval: 30_000 });
+
+  const switchStation = (newStation: string) => {
+    setCurrentStation(newStation);
+    const updated = { ...device, station: newStation };
+    storage.set(DEVICE_KEY, JSON.stringify(updated));
+    void qc.invalidateQueries({ queryKey: ['tickets'] });
+  };
 
   /** ACK ngay khi nhận (mục 6.3). Phiếu trùng: không thêm phiếu mới, chỉ gửi lại ACK. */
   const ack = useCallback(
@@ -118,7 +126,7 @@ function Kitchen({ token, device, station, onUnauthorized }: { token: string; de
   const connected = useRealtime({ token, storageKey: `kds.${device.id}` }, (e: DomainEvent) => {
     if (e.type === 'kitchen.sent') {
       const t = (e.data as { ticket: KitchenTicketDto }).ticket;
-      if (t.station === station) void ack(t.id);
+      if (t.station === currentStation) void ack(t.id);
     }
     if (e.type.startsWith('kitchen.') || e.type.startsWith('order.')) void qc.invalidateQueries({ queryKey: ['tickets'] });
     if (e.type.startsWith('menu.')) void qc.invalidateQueries({ queryKey: ['menu'] });
@@ -134,7 +142,7 @@ function Kitchen({ token, device, station, onUnauthorized }: { token: string; de
     seen.current = ids;
   }, [tickets.data, ack, chime.play]);
 
-  const active = (tickets.data ?? []).filter((t) => t.items.some((i) => !DONE.has(i.status)));
+  const active = (tickets.data ?? []).filter((t) => t.station === currentStation && t.items.some((i) => !DONE.has(i.status)));
 
   async function setStatus(item: OrderItemDto, status: 'PREPARING' | 'READY') {
     try {
@@ -149,7 +157,15 @@ function Kitchen({ token, device, station, onUnauthorized }: { token: string; de
     <div className="flex min-h-full flex-col bg-stone-100">
       <header className="flex flex-wrap items-center justify-between gap-3 bg-stone-900 px-4 py-3 text-white">
         <div className="flex items-center gap-4">
-          <span className="text-xl font-bold">{STATION_LABEL[station] ?? station}</span>
+          <select
+            value={currentStation}
+            onChange={(e) => switchStation(e.target.value)}
+            className="rounded bg-stone-800 px-3 py-2 text-white font-semibold hover:bg-stone-700 cursor-pointer"
+          >
+            <option value="BEP_NONG">🔥 Bếp nóng</option>
+            <option value="BEP_LANH">❄️ Bếp lạnh</option>
+            <option value="QUAY_BAR">🍹 Quầy bar</option>
+          </select>
           <span className="text-stone-400">{active.length} phiếu đang chờ</span>
         </div>
         <div className="flex items-center gap-3">
@@ -183,11 +199,11 @@ function Kitchen({ token, device, station, onUnauthorized }: { token: string; de
         </main>
       )}
 
-      <DeliveryStrip api={api} station={station} onError={toast.show} />
+      <DeliveryStrip api={api} station={currentStation} onError={toast.show} />
 
       {guideOpen && <GuideView docs={['bep', 'dao-tao', 'chay-thu']} progressKey={device.id} onClose={() => setGuideOpen(false)} />}
 
-      {soldOutOpen && <SoldOutModal api={api} station={station} onClose={() => setSoldOutOpen(false)} onError={toast.show} />}
+      {soldOutOpen && <SoldOutModal api={api} station={currentStation} onClose={() => setSoldOutOpen(false)} onError={toast.show} />}
       {toast.node}
     </div>
   );

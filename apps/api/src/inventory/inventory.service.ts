@@ -122,7 +122,8 @@ export class InventoryService {
     });
 
     if (recipeLines.length === 0) {
-      throw new BadRequestException(`No recipe found for menu item ${data.menuItemId}`);
+      console.warn(`⚠️ No recipe found for menu item ${data.menuItemId} - skipping stock deduction. TODO: seed default recipes.`);
+      return;
     }
 
     for (const line of recipeLines) {

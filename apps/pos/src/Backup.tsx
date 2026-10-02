@@ -23,8 +23,9 @@ export function Backup() {
       const res = await api.post<{ success: boolean; filename: string }>('/admin/backup/create', {});
       toast(`Backup tạo thành công: ${res.filename}`, 'good');
       void qc.invalidateQueries({ queryKey: ['backups'] });
-    } catch (e) {
-      toast(`Backup thất bại: ${e.message || 'Lỗi không xác định'}`);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      toast(`Backup thất bại: ${message || 'Lỗi không xác định'}`);
     } finally {
       setBusy(false);
     }
